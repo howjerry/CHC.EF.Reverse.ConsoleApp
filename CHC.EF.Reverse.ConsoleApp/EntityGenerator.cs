@@ -21,16 +21,28 @@ namespace CHC.EF.Reverse.ConsoleApp
 
         public void Generate(List<TableDefinition> tables)
         {
-            Directory.CreateDirectory(_settings.OutputDirectory);
+            // 檢查並建立輸出目錄
+            var entityOutputDir = Path.Combine(_settings.OutputDirectory, "Entities");
+            var configOutputDir = Path.Combine(_settings.OutputDirectory, "Configurations");
 
+            Directory.CreateDirectory(entityOutputDir);
+            Directory.CreateDirectory(configOutputDir);
+
+            // 開始生成代碼
             foreach (var table in tables)
             {
-                GenerateEntityClass(table);
-                GenerateConfigurationClass(table);
+                // 生成實體類
+                GenerateEntityClass(table, entityOutputDir);
+
+                // 生成 Fluent API 配置類
+                GenerateConfigurationClass(table, configOutputDir);
             }
+
+            _logger.Info("Code generation completed successfully.");
         }
 
-        private void GenerateEntityClass(TableDefinition table)
+
+        private void GenerateEntityClass(TableDefinition table, string outputDir)
         {
             var sb = new StringBuilder();
 
@@ -39,49 +51,47 @@ namespace CHC.EF.Reverse.ConsoleApp
             sb.AppendLine($"namespace {_settings.Namespace}.Entities");
             sb.AppendLine("{");
 
-            if (_settings.IncludeComments && !string.IsNullOrWhiteSpace(table.Comment))
-            {
-                sb.AppendLine("    /// <summary>");
-                AppendXmlComment(sb, table.Comment, "    ");
-                sb.AppendLine("    /// </summary>");
-            }
-
             var className = ToPascalCase(table.TableName);
             sb.AppendLine($"    public class {className}");
             sb.AppendLine("    {");
 
+            // 屬性生成
             foreach (var column in table.Columns)
             {
-                if (_settings.IncludeComments && !string.IsNullOrWhiteSpace(column.Comment))
-                {
-                    sb.AppendLine("        /// <summary>");
-                    AppendXmlComment(sb, column.Comment, "        ");
-                    sb.AppendLine("        /// </summary>");
-                }
-
-                var propertyName = ToPascalCase(column.ColumnName);
                 var propertyType = GetPropertyType(column);
-
-                sb.AppendLine($"        public {propertyType} {propertyName} {{ get; set; }}");
+                sb.AppendLine($"        public {propertyType} {ToPascalCase(column.ColumnName)} {{ get; set; }}");
             }
 
-            // Add navigation properties for foreign keys
+            // 外鍵導航屬性
             foreach (var fk in table.ForeignKeys)
             {
                 var navigationProperty = ToPascalCase(fk.PrimaryTable);
                 sb.AppendLine($"        public {navigationProperty} {navigationProperty} {{ get; set; }}");
             }
 
+            // 多對多關係導航屬性
+            if (table.IsManyToMany)
+            {
+                foreach (var fk in table.ForeignKeys)
+                {
+                    var otherTable = fk.PrimaryTable;
+                    if (!string.Equals(otherTable, table.TableName, StringComparison.OrdinalIgnoreCase))
+                    {
+                        var collectionName = Pluralize(ToPascalCase(otherTable));
+                        sb.AppendLine($"        public ICollection<{ToPascalCase(otherTable)}> {collectionName} {{ get; set; }}");
+                    }
+                }
+            }
+
             sb.AppendLine("    }");
             sb.AppendLine("}");
 
-            var filePath = Path.Combine(_settings.OutputDirectory, "Entities", className + ".cs");
-            Directory.CreateDirectory(Path.GetDirectoryName(filePath));
+            var filePath = Path.Combine(outputDir, $"{className}.cs");
             File.WriteAllText(filePath, sb.ToString());
             _logger.Info($"Generated entity class: {filePath}");
         }
 
-        private void GenerateConfigurationClass(TableDefinition table)
+        private void GenerateConfigurationClass(TableDefinition table, string outputDir)
         {
             var sb = new StringBuilder();
 
@@ -95,59 +105,40 @@ namespace CHC.EF.Reverse.ConsoleApp
             sb.AppendLine($"        public {className}Configuration()");
             sb.AppendLine("        {");
 
-            // Map table
             sb.AppendLine($"            ToTable(\"{table.TableName}\", \"{table.SchemaName}\");");
 
-            // Map primary keys
+            // 主鍵
             var primaryKeys = table.Columns.Where(c => c.IsPrimaryKey).ToList();
-            if (primaryKeys.Count == 1)
-            {
-                sb.AppendLine($"            HasKey(x => x.{ToPascalCase(primaryKeys[0].ColumnName)});");
-            }
-            else if (primaryKeys.Count > 1)
+            if (primaryKeys.Count > 0)
             {
                 var pkProps = string.Join(", ", primaryKeys.Select(pk => $"x.{ToPascalCase(pk.ColumnName)}"));
                 sb.AppendLine($"            HasKey(x => new {{ {pkProps} }});");
             }
 
-            // Map properties
-            foreach (var column in table.Columns)
+            // 多對多 Fluent API 映射
+            if (table.IsManyToMany)
             {
-                var propertyName = ToPascalCase(column.ColumnName);
-                sb.AppendLine($"            Property(x => x.{propertyName})");
+                var fk1 = table.ForeignKeys[0];
+                var fk2 = table.ForeignKeys[1];
 
-                sb.AppendLine($"                .HasColumnName(\"{column.ColumnName}\")");
+                var table1 = ToPascalCase(fk1.PrimaryTable);
+                var table2 = ToPascalCase(fk2.PrimaryTable);
 
-                if (column.MaxLength.HasValue && column.DataType == "string")
-                {
-                    sb.AppendLine($"                .HasMaxLength({column.MaxLength.Value})");
-                }
-
-                if (!column.IsNullable)
-                {
-                    sb.AppendLine("                .IsRequired()");
-                }
-
-                sb.AppendLine("                ;");
-            }
-
-            // Map foreign keys
-            foreach (var fk in table.ForeignKeys)
-            {
-                var foreignKeyProperty = ToPascalCase(fk.ForeignKeyColumn);
-                var navigationProperty = ToPascalCase(fk.PrimaryTable);
-
-                sb.AppendLine($"            HasRequired(x => x.{navigationProperty})");
-                sb.AppendLine($"                .WithMany() // Update as needed for navigation");
-                sb.AppendLine($"                .HasForeignKey(x => x.{foreignKeyProperty});");
+                sb.AppendLine($"            HasMany(x => x.{Pluralize(table1)})");
+                sb.AppendLine($"                .WithMany(x => x.{Pluralize(table2)})");
+                sb.AppendLine($"                .Map(m =>");
+                sb.AppendLine($"                {{");
+                sb.AppendLine($"                    m.ToTable(\"{table.TableName}\");");
+                sb.AppendLine($"                    m.MapLeftKey(\"{fk1.ForeignKeyColumn}\");");
+                sb.AppendLine($"                    m.MapRightKey(\"{fk2.ForeignKeyColumn}\");");
+                sb.AppendLine($"                }});");
             }
 
             sb.AppendLine("        }");
             sb.AppendLine("    }");
             sb.AppendLine("}");
 
-            var filePath = Path.Combine(_settings.OutputDirectory, "Configurations", className + "Configuration.cs");
-            Directory.CreateDirectory(Path.GetDirectoryName(filePath));
+            var filePath = Path.Combine(outputDir, $"{className}Configuration.cs");
             File.WriteAllText(filePath, sb.ToString());
             _logger.Info($"Generated configuration class: {filePath}");
         }
@@ -186,5 +177,42 @@ namespace CHC.EF.Reverse.ConsoleApp
                 sb.AppendLine($"{indent}/// {SecurityElement.Escape(line.Trim())}");
             }
         }
+
+        private string Pluralize(string name)
+        {
+            if (string.IsNullOrEmpty(name))
+            {
+                return name;
+            }
+
+            // 簡單的規則判斷
+            if (name.EndsWith("y", StringComparison.OrdinalIgnoreCase) &&
+                name.Length > 1 &&
+                !IsVowel(name[name.Length - 2]))
+            {
+                // 以非元音+y結尾，改為ies
+                return name.Substring(0, name.Length - 1) + "ies";
+            }
+            else if (name.EndsWith("s", StringComparison.OrdinalIgnoreCase) ||
+                     name.EndsWith("x", StringComparison.OrdinalIgnoreCase) ||
+                     name.EndsWith("z", StringComparison.OrdinalIgnoreCase) ||
+                     name.EndsWith("sh", StringComparison.OrdinalIgnoreCase) ||
+                     name.EndsWith("ch", StringComparison.OrdinalIgnoreCase))
+            {
+                // 特殊結尾，直接加es
+                return name + "es";
+            }
+            else
+            {
+                // 一般情況，加s
+                return name + "s";
+            }
+        }
+
+        private bool IsVowel(char c)
+        {
+            return "aeiouAEIOU".IndexOf(c) >= 0;
+        }
+
     }
 }
