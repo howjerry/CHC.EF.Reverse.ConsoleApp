@@ -38,7 +38,11 @@ namespace CHC.EF.Reverse.ConsoleApp
 
             _logger.Info("Code generation completed successfully.");
         }
-
+        /// <summary>
+        /// 生成實體類別程式碼。
+        /// </summary>
+        /// <param name="table">資料表定義。</param>
+        /// <param name="outputDir">輸出目錄。</param>
         private async Task GenerateEntityClassAsync(TableDefinition table, string outputDir)
         {
             var sb = new StringBuilder();
@@ -108,7 +112,11 @@ namespace CHC.EF.Reverse.ConsoleApp
             await File.WriteAllTextAsync(filePath, sb.ToString());
             _logger.Info($"Generated entity class: {filePath}");
         }
-
+        /// <summary>
+        /// 生成 Entity Framework Configuration 類別程式碼。
+        /// </summary>
+        /// <param name="table">資料表定義。</param>
+        /// <param name="outputDir">輸出目錄。</param>
         private async Task GenerateConfigurationClassAsync(TableDefinition table, string outputDir)
         {
             var sb = new StringBuilder();
@@ -125,19 +133,115 @@ namespace CHC.EF.Reverse.ConsoleApp
 
             sb.AppendLine($"            ToTable(\"{table.TableName}\", \"{table.SchemaName}\");");
 
-            // 主鍵
+            ConfigurePrimaryKeys(sb, table);
+            ConfigureColumns(sb, table);
+            ConfigureRelationships(sb, table);
+
+            sb.AppendLine("        }");
+            sb.AppendLine("    }");
+            sb.AppendLine("}");
+
+            var filePath = Path.Combine(outputDir, $"{className}Configuration.cs");
+            await File.WriteAllTextAsync(filePath, sb.ToString());
+            _logger.Info($"Generated configuration class: {filePath}");
+        }
+
+        private void ConfigureRelationships(StringBuilder sb, TableDefinition table)
+        {
+            foreach (var fk in table.ForeignKeys)
+            {
+                var foreignKeyProperty = ToPascalCase(fk.ForeignKeyColumn);
+                var navigationProperty = ToPascalCase(fk.PrimaryTable);
+                var inverseNavigationProperty = Pluralize(ToPascalCase(table.TableName));
+
+                // 決定關係類型
+                var isRequired = table.Columns
+                    .First(c => c.ColumnName == fk.ForeignKeyColumn)
+                    .IsNullable == false;
+
+                sb.AppendLine();
+                if (isRequired)
+                {
+                    sb.AppendLine($"            HasRequired(x => x.{navigationProperty})");
+                }
+                else
+                {
+                    sb.AppendLine($"            HasOptional(x => x.{navigationProperty})");
+                }
+
+                // 配置反向導航屬性
+                if (table.IsManyToMany)
+                {
+                    // 多對多關係
+                    sb.AppendLine($"                .WithMany(x => x.{inverseNavigationProperty})");
+                }
+                else if (IsCollectionNavigation(fk, table))
+                {
+                    // 一對多關係
+                    sb.AppendLine($"                .WithMany(x => x.{inverseNavigationProperty})");
+                }
+                else
+                {
+                    // 一對一關係
+                    sb.AppendLine($"                .WithOptional(x => x.{ToPascalCase(table.TableName)})");
+                }
+
+                // 配置外鍵
+                sb.AppendLine($"                .HasForeignKey(x => x.{foreignKeyProperty})");
+
+                // 配置刪除行為
+                ConfigureDeleteBehavior(sb, fk);
+
+                sb.AppendLine("                ;");
+            }
+        }
+
+        private bool IsCollectionNavigation(ForeignKeyDefinition fk, TableDefinition table)
+        {
+            // 檢查是否有多個相同的外鍵指向同一個主表
+            return table.ForeignKeys.Count(x => x.PrimaryTable == fk.PrimaryTable) > 1;
+        }
+
+        private void ConfigureDeleteBehavior(StringBuilder sb, ForeignKeyDefinition fk)
+        {
+            switch (fk.DeleteRule?.ToUpper())
+            {
+                case "CASCADE":
+                    sb.AppendLine("                .WillCascadeOnDelete(true)");
+                    break;
+                case "NO ACTION":
+                case "RESTRICT":
+                    sb.AppendLine("                .WillCascadeOnDelete(false)");
+                    break;
+                case "SET NULL":
+                    // Entity Framework 不直接支援 SET NULL，需要在應用程式層面處理
+                    sb.AppendLine("                .WillCascadeOnDelete(false)");
+                    break;
+            }
+        }
+
+        private void ConfigurePrimaryKeys(StringBuilder sb, TableDefinition table)
+        {
             var primaryKeys = table.Columns.Where(c => c.IsPrimaryKey).ToList();
             if (primaryKeys.Count > 0)
             {
                 var pkProps = string.Join(", ", primaryKeys.Select(pk => $"x.{ToPascalCase(pk.ColumnName)}"));
-                sb.AppendLine($"            HasKey(x => new {{ {pkProps} }});");
+                if (primaryKeys.Count == 1)
+                {
+                    sb.AppendLine($"            HasKey(x => x.{pkProps});");
+                }
+                else
+                {
+                    sb.AppendLine($"            HasKey(x => new {{ {pkProps} }});");
+                }
             }
+        }
 
-            // 欄位映射
+        private void ConfigureColumns(StringBuilder sb, TableDefinition table)
+        {
             foreach (var column in table.Columns)
             {
                 sb.AppendLine($"            Property(x => x.{ToPascalCase(column.ColumnName)})");
-
                 sb.AppendLine($"                .HasColumnName(\"{column.ColumnName}\")");
 
                 if (column.MaxLength.HasValue && column.DataType == "string")
@@ -150,28 +254,19 @@ namespace CHC.EF.Reverse.ConsoleApp
                     sb.AppendLine("                .IsRequired()");
                 }
 
+                if (column.IsIdentity)
+                {
+                    sb.AppendLine("                .HasDatabaseGeneratedOption(DatabaseGeneratedOption.Identity)");
+                }
+                else if (column.IsComputed)
+                {
+                    sb.AppendLine("                .HasDatabaseGeneratedOption(DatabaseGeneratedOption.Computed)");
+                }
+
                 sb.AppendLine("                ;");
             }
-
-            // 外鍵映射
-            foreach (var fk in table.ForeignKeys)
-            {
-                var foreignKeyProperty = ToPascalCase(fk.ForeignKeyColumn);
-                var navigationProperty = ToPascalCase(fk.PrimaryTable);
-
-                sb.AppendLine($"            HasRequired(x => x.{navigationProperty})");
-                sb.AppendLine($"                .WithMany() // Add collection property if needed");
-                sb.AppendLine($"                .HasForeignKey(x => x.{foreignKeyProperty});");
-            }
-
-            sb.AppendLine("        }");
-            sb.AppendLine("    }");
-            sb.AppendLine("}");
-
-            var filePath = Path.Combine(outputDir, $"{className}Configuration.cs");
-            await File.WriteAllTextAsync(filePath, sb.ToString());
-            _logger.Info($"Generated configuration class: {filePath}");
         }
+
 
         private string ToPascalCase(string text)
         {
