@@ -1,5 +1,6 @@
-﻿using Microsoft.Data.SqlClient;
-using System.Data;
+﻿using System;
+using System.Collections.Generic;
+using Microsoft.Data.SqlClient;
 
 namespace CHC.EF.Reverse.ConsoleApp
 {
@@ -20,90 +21,86 @@ namespace CHC.EF.Reverse.ConsoleApp
             {
                 conn.Open();
 
-                // Read table definitions
                 var dt = conn.GetSchema("Tables");
-                foreach (DataRow row in dt.Rows)
+                foreach (System.Data.DataRow row in dt.Rows)
                 {
                     if (row["TABLE_TYPE"].ToString().Equals("BASE TABLE", StringComparison.OrdinalIgnoreCase))
                     {
-                        var table = new TableDefinition
+                        tables.Add(new TableDefinition
                         {
                             TableName = row["TABLE_NAME"].ToString(),
                             SchemaName = row["TABLE_SCHEMA"].ToString()
-                        };
-                        tables.Add(table);
+                        });
                     }
                 }
 
                 foreach (var table in tables)
                 {
-                    // Read columns
-                    var columnQuery = $@"
+                    // 取得外鍵定義
+                    var fkQuery = @"
                         SELECT 
-                            COLUMN_NAME, 
-                            DATA_TYPE, 
-                            IS_NULLABLE, 
-                            CHARACTER_MAXIMUM_LENGTH, 
-                            NUMERIC_PRECISION, 
-                            NUMERIC_SCALE
-                        FROM INFORMATION_SCHEMA.COLUMNS 
-                        WHERE TABLE_NAME = '{table.TableName}' AND TABLE_SCHEMA = '{table.SchemaName}'";
+                            fk.name AS ConstraintName,
+                            c1.name AS ForeignKeyColumn,
+                            OBJECT_NAME(fk.referenced_object_id) AS PrimaryTable,
+                            c2.name AS PrimaryKeyColumn,
+                            fk.delete_referential_action_desc AS DeleteRule,
+                            fk.update_referential_action_desc AS UpdateRule
+                        FROM sys.foreign_keys fk
+                        INNER JOIN sys.foreign_key_columns fkc 
+                            ON fk.object_id = fkc.constraint_object_id
+                        INNER JOIN sys.columns c1 
+                            ON fkc.parent_object_id = c1.object_id 
+                            AND fkc.parent_column_id = c1.column_id
+                        INNER JOIN sys.columns c2 
+                            ON fkc.referenced_object_id = c2.object_id 
+                            AND fkc.referenced_column_id = c2.column_id
+                        WHERE OBJECT_NAME(fk.parent_object_id) = @tableName
+                        AND SCHEMA_NAME(fk.schema_id) = @schemaName";
 
-                    using (var colCmd = new SqlCommand(columnQuery, conn))
-                    using (var colRdr = colCmd.ExecuteReader())
+                    using (var fkCmd = new SqlCommand(fkQuery, conn))
                     {
-                        while (colRdr.Read())
-                        {
-                            var column = new ColumnDefinition
-                            {
-                                ColumnName = colRdr["COLUMN_NAME"].ToString(),
-                                DataType = colRdr["DATA_TYPE"].ToString(),
-                                IsNullable = colRdr["IS_NULLABLE"].ToString().Equals("YES", StringComparison.OrdinalIgnoreCase),
-                                MaxLength = colRdr["CHARACTER_MAXIMUM_LENGTH"] != DBNull.Value
-                                    ? Convert.ToInt32(colRdr["CHARACTER_MAXIMUM_LENGTH"])
-                                    : (int?)null,
-                                Precision = colRdr["NUMERIC_PRECISION"] != DBNull.Value
-                                    ? Convert.ToInt32(colRdr["NUMERIC_PRECISION"])
-                                    : (int?)null,
-                                Scale = colRdr["NUMERIC_SCALE"] != DBNull.Value
-                                    ? Convert.ToInt32(colRdr["NUMERIC_SCALE"])
-                                    : (int?)null
-                            };
-                            table.Columns.Add(column);
-                        }
-                    }
+                        fkCmd.Parameters.AddWithValue("@tableName", table.TableName);
+                        fkCmd.Parameters.AddWithValue("@schemaName", table.SchemaName);
 
-                    // Read foreign keys
-                    var foreignKeyQuery = $@"
-                        SELECT 
-                            FK.COLUMN_NAME AS ForeignKey, 
-                            PK.TABLE_NAME AS PrimaryTable, 
-                            PK.COLUMN_NAME AS PrimaryKey 
-                        FROM INFORMATION_SCHEMA.REFERENTIAL_CONSTRAINTS RC
-                        JOIN INFORMATION_SCHEMA.KEY_COLUMN_USAGE FK 
-                            ON RC.CONSTRAINT_NAME = FK.CONSTRAINT_NAME
-                        JOIN INFORMATION_SCHEMA.KEY_COLUMN_USAGE PK 
-                            ON RC.UNIQUE_CONSTRAINT_NAME = PK.CONSTRAINT_NAME
-                        WHERE FK.TABLE_NAME = '{table.TableName}' AND FK.TABLE_SCHEMA = '{table.SchemaName}'";
-
-                    using (var fkCmd = new SqlCommand(foreignKeyQuery, conn))
-                    using (var fkRdr = fkCmd.ExecuteReader())
-                    {
-                        while (fkRdr.Read())
+                        using (var fkRdr = fkCmd.ExecuteReader())
                         {
-                            var foreignKey = new ForeignKeyDefinition
+                            while (fkRdr.Read())
                             {
-                                ForeignKeyColumn = fkRdr["ForeignKey"].ToString(),
-                                PrimaryTable = fkRdr["PrimaryTable"].ToString(),
-                                PrimaryKeyColumn = fkRdr["PrimaryKey"].ToString()
-                            };
-                            table.ForeignKeys.Add(foreignKey);
+                                table.ForeignKeys.Add(new ForeignKeyDefinition
+                                {
+                                    ConstraintName = fkRdr["ConstraintName"].ToString(),
+                                    ForeignKeyColumn = fkRdr["ForeignKeyColumn"].ToString(),
+                                    PrimaryTable = fkRdr["PrimaryTable"].ToString(),
+                                    PrimaryKeyColumn = fkRdr["PrimaryKeyColumn"].ToString(),
+                                    DeleteRule = fkRdr["DeleteRule"].ToString(),
+                                    UpdateRule = fkRdr["UpdateRule"].ToString()
+                                });
+                            }
                         }
                     }
                 }
             }
 
             return tables;
+        }
+
+        private string MapSqlServerType(string sqlType)
+        {
+            sqlType = sqlType.ToLower();
+            return sqlType switch
+            {
+                "int" => "int",
+                "bigint" => "long",
+                "decimal" => "decimal",
+                "money" => "decimal",
+                "float" => "double",
+                "datetime" => "DateTime",
+                "datetimeoffset" => "DateTimeOffset",
+                "xml" => "string",
+                "json" => "string",
+                "bit" => "bool",
+                _ => "string"
+            };
         }
     }
 }

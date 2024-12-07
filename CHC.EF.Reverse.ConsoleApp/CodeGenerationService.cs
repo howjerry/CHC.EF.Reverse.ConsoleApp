@@ -17,7 +17,7 @@ namespace CHC.EF.Reverse.ConsoleApp
             _schemaReaderFactory = schemaReaderFactory;
         }
 
-        public void Run()
+        public async Task Run()
         {
             try
             {
@@ -27,7 +27,7 @@ namespace CHC.EF.Reverse.ConsoleApp
                 _logger.Info($"讀取到 {tables.Count} 個資料表。");
 
                 var generator = new EntityGenerator(_settings, _logger);
-                generator.Generate(tables);
+                await generator.GenerateAsync(tables);
 
                 _logger.Info("程式碼產生完成。");
             }

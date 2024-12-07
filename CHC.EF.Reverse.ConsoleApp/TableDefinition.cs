@@ -89,6 +89,8 @@
         /// The scale of the column (if applicable, e.g., for decimal types).
         /// </summary>
         public int? Scale { get; set; }
+
+        public bool IsIndexed { get; set; }
     }
 
     /// <summary>
@@ -96,19 +98,29 @@
     /// </summary>
     public class ForeignKeyDefinition
     {
-        /// <summary>
-        /// The column in the current table that is the foreign key.
-        /// </summary>
+        /// <summary>外鍵約束名稱</summary>
+        public string ConstraintName { get; set; }
+
+        /// <summary>外鍵欄位名稱</summary>
         public string ForeignKeyColumn { get; set; }
 
-        /// <summary>
-        /// The name of the primary table referenced by the foreign key.
-        /// </summary>
+        /// <summary>參考的主表名稱</summary>
         public string PrimaryTable { get; set; }
 
-        /// <summary>
-        /// The column in the primary table referenced by the foreign key.
-        /// </summary>
+        /// <summary>參考的主鍵欄位名稱</summary>
         public string PrimaryKeyColumn { get; set; }
+
+        /// <summary>刪除規則（CASCADE, SET NULL, NO ACTION 等）</summary>
+        public string DeleteRule { get; set; }
+
+        /// <summary>更新規則（CASCADE, SET NULL, NO ACTION 等）</summary>
+        public string UpdateRule { get; set; }
+
+        /// <summary>是否為複合外鍵</summary>
+        public bool IsCompositeKey { get; set; }
+
+        /// <summary>附加備註</summary>
+        public string Comment { get; set; }
     }
+
 }

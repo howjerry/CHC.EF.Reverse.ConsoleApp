@@ -21,57 +21,99 @@ namespace CHC.EF.Reverse.ConsoleApp
             {
                 conn.Open();
 
-                using (var cmd = new MySqlCommand("SHOW FULL TABLES WHERE Table_type='BASE TABLE'", conn))
+                // 取得所有資料表
+                using (var cmd = new MySqlCommand("SHOW FULL TABLES WHERE Table_type = 'BASE TABLE'", conn))
                 using (var rdr = cmd.ExecuteReader())
                 {
                     while (rdr.Read())
                     {
-                        var table = new TableDefinition
+                        tables.Add(new TableDefinition
                         {
                             TableName = rdr.GetString(0),
                             SchemaName = conn.Database
-                        };
-                        tables.Add(table);
+                        });
                     }
                 }
 
                 foreach (var table in tables)
                 {
+                    // 取得欄位定義
                     using (var colCmd = new MySqlCommand($"SHOW FULL COLUMNS FROM `{table.TableName}`", conn))
                     using (var colRdr = colCmd.ExecuteReader())
                     {
                         while (colRdr.Read())
                         {
-                            var column = new ColumnDefinition
+                            table.Columns.Add(new ColumnDefinition
                             {
                                 ColumnName = colRdr["Field"].ToString(),
-                                DataType = colRdr["Type"].ToString(),
+                                DataType = ParseDataType(colRdr["Type"].ToString()),
                                 IsNullable = colRdr["Null"].ToString().Equals("YES", StringComparison.OrdinalIgnoreCase),
                                 IsPrimaryKey = colRdr["Key"].ToString().Equals("PRI", StringComparison.OrdinalIgnoreCase),
                                 Comment = colRdr["Comment"].ToString()
-                            };
-                            table.Columns.Add(column);
+                            });
                         }
                     }
 
-                    using (var fkCmd = new MySqlCommand($"SELECT COLUMN_NAME, REFERENCED_TABLE_NAME, REFERENCED_COLUMN_NAME FROM INFORMATION_SCHEMA.KEY_COLUMN_USAGE WHERE TABLE_NAME = '{table.TableName}' AND TABLE_SCHEMA = '{conn.Database}' AND REFERENCED_TABLE_NAME IS NOT NULL", conn))
-                    using (var fkRdr = fkCmd.ExecuteReader())
+                    // 取得外鍵定義
+                    var fkQuery = @"
+                        SELECT 
+                            ku.CONSTRAINT_NAME AS ConstraintName,
+                            ku.COLUMN_NAME AS ForeignKeyColumn,
+                            ku.REFERENCED_TABLE_NAME AS PrimaryTable,
+                            ku.REFERENCED_COLUMN_NAME AS PrimaryKeyColumn,
+                            rc.DELETE_RULE AS DeleteRule,
+                            rc.UPDATE_RULE AS UpdateRule
+                        FROM INFORMATION_SCHEMA.REFERENTIAL_CONSTRAINTS rc
+                        JOIN INFORMATION_SCHEMA.KEY_COLUMN_USAGE ku
+                            ON rc.CONSTRAINT_SCHEMA = ku.TABLE_SCHEMA
+                            AND rc.TABLE_NAME = ku.TABLE_NAME
+                            AND rc.CONSTRAINT_NAME = ku.CONSTRAINT_NAME
+                        WHERE ku.TABLE_NAME = @tableName 
+                        AND ku.TABLE_SCHEMA = @schemaName";
+
+                    using (var fkCmd = new MySqlCommand(fkQuery, conn))
                     {
-                        while (fkRdr.Read())
+                        fkCmd.Parameters.AddWithValue("@tableName", table.TableName);
+                        fkCmd.Parameters.AddWithValue("@schemaName", conn.Database);
+
+                        using (var fkRdr = fkCmd.ExecuteReader())
                         {
-                            var foreignKey = new ForeignKeyDefinition
+                            while (fkRdr.Read())
                             {
-                                ForeignKeyColumn = fkRdr["COLUMN_NAME"].ToString(),
-                                PrimaryTable = fkRdr["REFERENCED_TABLE_NAME"].ToString(),
-                                PrimaryKeyColumn = fkRdr["REFERENCED_COLUMN_NAME"].ToString()
-                            };
-                            table.ForeignKeys.Add(foreignKey);
+                                table.ForeignKeys.Add(new ForeignKeyDefinition
+                                {
+                                    ConstraintName = fkRdr["ConstraintName"].ToString(),
+                                    ForeignKeyColumn = fkRdr["ForeignKeyColumn"].ToString(),
+                                    PrimaryTable = fkRdr["PrimaryTable"].ToString(),
+                                    PrimaryKeyColumn = fkRdr["PrimaryKeyColumn"].ToString(),
+                                    DeleteRule = fkRdr["DeleteRule"].ToString(),
+                                    UpdateRule = fkRdr["UpdateRule"].ToString()
+                                });
+                            }
                         }
                     }
                 }
             }
 
             return tables;
+        }
+
+
+        private string ParseDataType(string sqlType)
+        {
+            sqlType = sqlType.ToLower();
+            if (sqlType.Contains("int")) return "int";
+            if (sqlType.Contains("bigint")) return "long";
+            if (sqlType.Contains("decimal") || sqlType.Contains("numeric") || sqlType.Contains("money"))
+                return "decimal";
+            if (sqlType.Contains("float") || sqlType.Contains("double")) return "double";
+            if (sqlType.Contains("datetime")) return "DateTime";
+            if (sqlType.Contains("datetimeoffset")) return "DateTimeOffset";
+            if (sqlType.Contains("json")) return "string";
+            if (sqlType.Contains("xml")) return "string";
+            if (sqlType.Contains("bit")) return "bool";
+            if (sqlType.Contains("char") || sqlType.Contains("text")) return "string";
+            return "string";
         }
     }
 }

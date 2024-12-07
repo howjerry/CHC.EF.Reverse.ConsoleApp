@@ -1,45 +1,57 @@
-﻿using Microsoft.Extensions.Configuration;
-using Microsoft.Extensions.DependencyInjection;
+﻿using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Configuration;
+using System;
+using System.IO;
 
 namespace CHC.EF.Reverse.ConsoleApp
 {
-    internal class Program
+    class Program
     {
-        static void Main(string[] args)
+        static async Task Main(string[] args)
         {
-            // 設定 Configuration
+            try
+            {
+                // 初始化配置和依賴注入
+                var serviceProvider = ConfigureServices();
+
+                // 執行代碼生成
+                using (var scope = serviceProvider.CreateScope())
+                {
+                    var codeGenService = scope.ServiceProvider.GetRequiredService<CodeGenerationService>();
+                    await codeGenService.Run();
+                }
+
+                Console.WriteLine("Code generation completed successfully.");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"An error occurred: {ex.Message}");
+            }
+
+            Console.WriteLine("Press any key to exit...");
+            Console.ReadKey();
+        }
+
+        private static ServiceProvider ConfigureServices()
+        {
+            // 加載配置文件
             var configuration = new ConfigurationBuilder()
                 .SetBasePath(Directory.GetCurrentDirectory())
-                .AddJsonFile("appsettings.json")
+                .AddJsonFile("appsettings.json", optional: false, reloadOnChange: true)
                 .Build();
 
             // 註冊 DI 容器
             var services = new ServiceCollection();
-            ConfigureServices(services, configuration);
 
-            var serviceProvider = services.BuildServiceProvider();
-
-            // 執行程式碼生成
-            using (var scope = serviceProvider.CreateScope())
-            {
-                var codeGenService = scope.ServiceProvider.GetRequiredService<CodeGenerationService>();
-                codeGenService.Run();
-            }
-        }
-
-        private static void ConfigureServices(IServiceCollection services, IConfiguration configuration)
-        {
-            // 註冊設定
+            // 設定注入
             services.Configure<Settings>(configuration.GetSection("CodeGenerator"));
 
-            // 註冊 Logger
+            // 註冊核心服務
             services.AddSingleton<Logger>();
-
-            // 註冊 SchemaReader 工廠
             services.AddSingleton<DatabaseSchemaReaderFactory>();
-
-            // 註冊代碼生成服務
             services.AddTransient<CodeGenerationService>();
+
+            return services.BuildServiceProvider();
         }
     }
 }
