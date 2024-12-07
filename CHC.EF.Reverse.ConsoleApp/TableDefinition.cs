@@ -45,53 +45,21 @@
         }
     }
 
-    /// <summary>
-    /// Represents a column definition in a table.
-    /// </summary>
     public class ColumnDefinition
     {
-        /// <summary>
-        /// The name of the column.
-        /// </summary>
         public string ColumnName { get; set; }
-
-        /// <summary>
-        /// The data type of the column.
-        /// </summary>
         public string DataType { get; set; }
-
-        /// <summary>
-        /// Indicates if the column allows null values.
-        /// </summary>
         public bool IsNullable { get; set; }
-
-        /// <summary>
-        /// Indicates if the column is part of the primary key.
-        /// </summary>
         public bool IsPrimaryKey { get; set; }
-
-        /// <summary>
-        /// The comment or description of the column.
-        /// </summary>
-        public string Comment { get; set; }
-
-        /// <summary>
-        /// The maximum length of the column (if applicable).
-        /// </summary>
+        public bool IsIdentity { get; set; }
+        public bool IsComputed { get; set; }
+        public string DefaultValue { get; set; }
         public int? MaxLength { get; set; }
-
-        /// <summary>
-        /// The precision of the column (if applicable, e.g., for decimal types).
-        /// </summary>
         public int? Precision { get; set; }
-
-        /// <summary>
-        /// The scale of the column (if applicable, e.g., for decimal types).
-        /// </summary>
         public int? Scale { get; set; }
-
-        public bool IsIndexed { get; set; }
+        public string Comment { get; set; }
     }
+
 
     /// <summary>
     /// Represents a foreign key definition in a table.

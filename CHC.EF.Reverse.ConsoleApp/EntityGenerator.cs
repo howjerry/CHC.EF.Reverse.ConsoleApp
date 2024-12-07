@@ -73,7 +73,7 @@ namespace CHC.EF.Reverse.ConsoleApp
                     if (column.IsPrimaryKey) sb.AppendLine("        [Key]");
                     if (!column.IsNullable) sb.AppendLine("        [Required]");
                     if (column.MaxLength.HasValue) sb.AppendLine($"        [MaxLength({column.MaxLength.Value})]");
-                    if (column.IsIndexed) sb.AppendLine("        [Index]");
+                   // if (column.IsIndexed) sb.AppendLine("        [Index]");
                 }
 
                 var propertyType = GetPropertyType(column);
