@@ -1,5 +1,4 @@
-﻿using CHC.EF.Reverse.ConsoleApp;
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -27,6 +26,7 @@ namespace CHC.EF.Reverse.ConsoleApp
             foreach (var table in tables)
             {
                 GenerateEntityClass(table);
+                GenerateConfigurationClass(table);
             }
         }
 
@@ -36,12 +36,7 @@ namespace CHC.EF.Reverse.ConsoleApp
 
             sb.AppendLine("using System;");
             sb.AppendLine("using System.Collections.Generic;");
-            if (_settings.UseDataAnnotations)
-            {
-                sb.AppendLine("using System.ComponentModel.DataAnnotations;");
-                sb.AppendLine("using System.ComponentModel.DataAnnotations.Schema;");
-            }
-            sb.AppendLine($"namespace {_settings.Namespace}");
+            sb.AppendLine($"namespace {_settings.Namespace}.Entities");
             sb.AppendLine("{");
 
             if (_settings.IncludeComments && !string.IsNullOrWhiteSpace(table.Comment))
@@ -49,11 +44,6 @@ namespace CHC.EF.Reverse.ConsoleApp
                 sb.AppendLine("    /// <summary>");
                 AppendXmlComment(sb, table.Comment, "    ");
                 sb.AppendLine("    /// </summary>");
-            }
-
-            if (_settings.UseDataAnnotations)
-            {
-                sb.AppendLine($"    [Table(\"{table.TableName}\", Schema = \"{table.SchemaName}\")]");
             }
 
             var className = ToPascalCase(table.TableName);
@@ -69,17 +59,17 @@ namespace CHC.EF.Reverse.ConsoleApp
                     sb.AppendLine("        /// </summary>");
                 }
 
-                if (_settings.UseDataAnnotations)
-                {
-                    if (column.IsPrimaryKey) sb.AppendLine("        [Key]");
-                    if (!column.IsNullable) sb.AppendLine("        [Required]");
-                    if (column.MaxLength.HasValue) sb.AppendLine($"        [StringLength({column.MaxLength.Value})]");
-                }
-
                 var propertyName = ToPascalCase(column.ColumnName);
                 var propertyType = GetPropertyType(column);
 
                 sb.AppendLine($"        public {propertyType} {propertyName} {{ get; set; }}");
+            }
+
+            // Add navigation properties for foreign keys
+            foreach (var fk in table.ForeignKeys)
+            {
+                var navigationProperty = ToPascalCase(fk.PrimaryTable);
+                sb.AppendLine($"        public {navigationProperty} {navigationProperty} {{ get; set; }}");
             }
 
             sb.AppendLine("    }");
@@ -89,6 +79,77 @@ namespace CHC.EF.Reverse.ConsoleApp
             Directory.CreateDirectory(Path.GetDirectoryName(filePath));
             File.WriteAllText(filePath, sb.ToString());
             _logger.Info($"Generated entity class: {filePath}");
+        }
+
+        private void GenerateConfigurationClass(TableDefinition table)
+        {
+            var sb = new StringBuilder();
+
+            sb.AppendLine("using System.Data.Entity.ModelConfiguration;");
+            sb.AppendLine($"namespace {_settings.Namespace}.Configurations");
+            sb.AppendLine("{");
+
+            var className = ToPascalCase(table.TableName);
+            sb.AppendLine($"    public class {className}Configuration : EntityTypeConfiguration<{_settings.Namespace}.Entities.{className}>");
+            sb.AppendLine("    {");
+            sb.AppendLine($"        public {className}Configuration()");
+            sb.AppendLine("        {");
+
+            // Map table
+            sb.AppendLine($"            ToTable(\"{table.TableName}\", \"{table.SchemaName}\");");
+
+            // Map primary keys
+            var primaryKeys = table.Columns.Where(c => c.IsPrimaryKey).ToList();
+            if (primaryKeys.Count == 1)
+            {
+                sb.AppendLine($"            HasKey(x => x.{ToPascalCase(primaryKeys[0].ColumnName)});");
+            }
+            else if (primaryKeys.Count > 1)
+            {
+                var pkProps = string.Join(", ", primaryKeys.Select(pk => $"x.{ToPascalCase(pk.ColumnName)}"));
+                sb.AppendLine($"            HasKey(x => new {{ {pkProps} }});");
+            }
+
+            // Map properties
+            foreach (var column in table.Columns)
+            {
+                var propertyName = ToPascalCase(column.ColumnName);
+                sb.AppendLine($"            Property(x => x.{propertyName})");
+
+                sb.AppendLine($"                .HasColumnName(\"{column.ColumnName}\")");
+
+                if (column.MaxLength.HasValue && column.DataType == "string")
+                {
+                    sb.AppendLine($"                .HasMaxLength({column.MaxLength.Value})");
+                }
+
+                if (!column.IsNullable)
+                {
+                    sb.AppendLine("                .IsRequired()");
+                }
+
+                sb.AppendLine("                ;");
+            }
+
+            // Map foreign keys
+            foreach (var fk in table.ForeignKeys)
+            {
+                var foreignKeyProperty = ToPascalCase(fk.ForeignKeyColumn);
+                var navigationProperty = ToPascalCase(fk.PrimaryTable);
+
+                sb.AppendLine($"            HasRequired(x => x.{navigationProperty})");
+                sb.AppendLine($"                .WithMany() // Update as needed for navigation");
+                sb.AppendLine($"                .HasForeignKey(x => x.{foreignKeyProperty});");
+            }
+
+            sb.AppendLine("        }");
+            sb.AppendLine("    }");
+            sb.AppendLine("}");
+
+            var filePath = Path.Combine(_settings.OutputDirectory, "Configurations", className + "Configuration.cs");
+            Directory.CreateDirectory(Path.GetDirectoryName(filePath));
+            File.WriteAllText(filePath, sb.ToString());
+            _logger.Info($"Generated configuration class: {filePath}");
         }
 
         private string ToPascalCase(string text)
