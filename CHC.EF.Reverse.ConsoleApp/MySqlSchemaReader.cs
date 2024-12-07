@@ -53,6 +53,21 @@ namespace CHC.EF.Reverse.ConsoleApp
                             table.Columns.Add(column);
                         }
                     }
+
+                    using (var fkCmd = new MySqlCommand($"SELECT COLUMN_NAME, REFERENCED_TABLE_NAME, REFERENCED_COLUMN_NAME FROM INFORMATION_SCHEMA.KEY_COLUMN_USAGE WHERE TABLE_NAME = '{table.TableName}' AND TABLE_SCHEMA = '{conn.Database}' AND REFERENCED_TABLE_NAME IS NOT NULL", conn))
+                    using (var fkRdr = fkCmd.ExecuteReader())
+                    {
+                        while (fkRdr.Read())
+                        {
+                            var foreignKey = new ForeignKeyDefinition
+                            {
+                                ForeignKeyColumn = fkRdr["COLUMN_NAME"].ToString(),
+                                PrimaryTable = fkRdr["REFERENCED_TABLE_NAME"].ToString(),
+                                PrimaryKeyColumn = fkRdr["REFERENCED_COLUMN_NAME"].ToString()
+                            };
+                            table.ForeignKeys.Add(foreignKey);
+                        }
+                    }
                 }
             }
 
