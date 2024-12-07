@@ -1,5 +1,5 @@
 ## Overview
-This project is a dynamic code generator designed to work with .NET 8.0 and Entity Framework (EF) Core 8. It automates the creation of essential EF components such as:
+This project is a dynamic code generator designed to work with .NET 8.0 and Entity Framework 6.0 . It automates the creation of essential EF components such as:
 
 - **POCO Classes**: Generate C# classes based on database tables.
 - **Fluent API Configurations**: Provide detailed mappings for database schemas.
