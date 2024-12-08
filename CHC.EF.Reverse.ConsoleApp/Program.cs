@@ -47,8 +47,8 @@ namespace CHC.EF.Reverse.ConsoleApp
             services.Configure<Settings>(configuration.GetSection("CodeGenerator"));
 
             // 註冊核心服務
-            services.AddSingleton<Logger>();
-            services.AddSingleton<DatabaseSchemaReaderFactory>();
+            services.AddSingleton<ILogger, Logger>();
+            services.AddSingleton<IDatabaseSchemaReaderFactory, DatabaseSchemaReaderFactory>();
             services.AddTransient<CodeGenerationService>();
 
             return services.BuildServiceProvider();

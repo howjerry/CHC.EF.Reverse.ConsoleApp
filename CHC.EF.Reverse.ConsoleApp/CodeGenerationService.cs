@@ -7,10 +7,13 @@ namespace CHC.EF.Reverse.ConsoleApp
     public class CodeGenerationService
     {
         private readonly Settings _settings;
-        private readonly Logger _logger;
-        private readonly DatabaseSchemaReaderFactory _schemaReaderFactory;
+        private readonly ILogger _logger;
+        private readonly IDatabaseSchemaReaderFactory _schemaReaderFactory;
 
-        public CodeGenerationService(IOptions<Settings> settings, Logger logger, DatabaseSchemaReaderFactory schemaReaderFactory)
+        public CodeGenerationService(
+            IOptions<Settings> settings,
+            ILogger logger,
+            IDatabaseSchemaReaderFactory schemaReaderFactory)
         {
             _settings = settings.Value;
             _logger = logger;

@@ -3,7 +3,7 @@
     /// <summary>
     /// 負責記錄程式碼生成過程中的日誌。
     /// </summary>
-    public class Logger
+    public class Logger : ILogger
     {
         private readonly string _logPath;
 

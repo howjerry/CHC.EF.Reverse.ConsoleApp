@@ -3,7 +3,7 @@ using Microsoft.Extensions.Options;
 
 namespace CHC.EF.Reverse.ConsoleApp
 {
-    public class DatabaseSchemaReaderFactory
+    public class DatabaseSchemaReaderFactory : IDatabaseSchemaReaderFactory
     {
         private readonly Settings _settings;
 

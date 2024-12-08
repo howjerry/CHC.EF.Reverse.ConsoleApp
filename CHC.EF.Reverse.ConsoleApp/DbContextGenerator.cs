@@ -6,9 +6,9 @@ namespace CHC.EF.Reverse.ConsoleApp
     public class DbContextGenerator
     {
         private readonly Settings _settings;
-        private readonly Logger _logger;
+        private readonly ILogger _logger;
 
-        public DbContextGenerator(Settings settings, Logger logger)
+        public DbContextGenerator(Settings settings, ILogger logger)
         {
             _settings = settings;
             _logger = logger;
