@@ -1,78 +1,124 @@
-## Overview
-This project is a dynamic code generator designed to work with .NET 8.0 and Entity Framework 6.0 . It automates the creation of essential EF components such as:
+# EF Core Reverse Engineering Tool
 
-- **POCO Classes**: Generate C# classes based on database tables.
-- **Fluent API Configurations**: Provide detailed mappings for database schemas.
-- **DbContext**: Integrate table operations into a unified context.
-- **Optional UnitOfWork**: Manage database transactions and operations efficiently.
+## Overview
+This project is a dynamic code generator designed to work with .NET 8.0 and Entity Framework 6.0. It provides a command-line interface (CLI) to automate the creation of essential EF components such as:
+
+- **POCO Classes**: Generate C# classes based on database tables
+- **Fluent API Configurations**: Provide detailed mappings for database schemas
+- **DbContext**: Integrate table operations into a unified context
+- **Optional UnitOfWork**: Manage database transactions and operations efficiently
 
 ## Features
 
 ### Architecture & Configuration
 - **Modern .NET Architecture**:
-  - Built on .NET 8.0.
-  - Leverages `IServiceCollection` for Dependency Injection (DI).
+  - Built on .NET 8.0
+  - Leverages `IServiceCollection` for Dependency Injection (DI)
 - **Flexible Configuration**:
-  - Configure namespaces, database connections, and output directories via `appsettings.json`.
-  - Optional settings for features like pluralization and PascalCase conversion.
+  - Configure via command line arguments
+  - Support for `appsettings.json` and custom configuration files
+  - Optional settings for features like pluralization and PascalCase conversion
 
 ### Multi-Database Support
-- Supports both **SQL Server** and **MySQL** out of the box.
-- Easy to extend for additional database providers using `IDatabaseSchemaReader` abstraction.
+- Supports both **SQL Server** and **MySQL** out of the box
+- Easy to extend for additional database providers using `IDatabaseSchemaReader` abstraction
 
 ### XML Safety and Documentation
-- **Escaped XML Characters**: Ensures generated XML comments are valid by escaping special characters.
-- **Multi-line Comment Support**: Automatically formats multi-line comments with proper indentation and alignment.
+- **Escaped XML Characters**: Ensures generated XML comments are valid
+- **Multi-line Comment Support**: Properly formatted documentation
 
 ### Code Generation
-- Generates properties with accurate data types, constraints, and annotations (e.g., `Required`, `StringLength`).
-- Outputs well-structured class files for each database table.
+- Generates properties with accurate data types and constraints
+- Supports Data Annotations (e.g., `Required`, `StringLength`)
+- Outputs well-structured class files for each database table
+
+## Installation
+
+### Global Tool Installation
+Install the tool globally using the .NET CLI:
+
+```bash
+dotnet tool install --global dotnet-efrev
+```
+
+### Required Packages
+If you're using the generated code, you'll need:
+```bash
+dotnet add package Microsoft.EntityFrameworkCore
+dotnet add package Microsoft.EntityFrameworkCore.SqlServer
+dotnet add package MySql.EntityFrameworkCore
+```
 
 ## Usage
 
-### Prerequisites
-- **Environment**:
-  - .NET 8.0 SDK
-  - EF Core 8
-- **Packages**:
-  Install the required NuGet packages:
-  ```bash
-  dotnet add package Microsoft.EntityFrameworkCore
-  dotnet add package Microsoft.EntityFrameworkCore.SqlServer
-  dotnet add package MySql.EntityFrameworkCore
-  dotnet add package Microsoft.Extensions.DependencyInjection
-  dotnet add package Microsoft.Extensions.Configuration.Json
-  ```
+### Initialize Configuration
+Create default configuration files:
+```bash
+efrev --init
+```
 
-### Configuration
-Set up the `appsettings.json` file to match your environment:
+This will create:
+- `appsettings.json`: Standard .NET configuration file
+- `efrev.json`: Tool-specific configuration file
 
+### Basic Usage
+Generate code using default settings:
+```bash
+efrev
+```
+
+### Command Line Options
+```bash
+Options:
+  -c, --connection        Database connection string
+  -p, --provider         Database provider (SqlServer/MySql)
+  -n, --namespace        Namespace for generated code
+  -o, --output          Output directory
+  --pluralize           Pluralize collection names
+  --data-annotations    Use data annotations
+  --config              Path to custom configuration file
+  --settings            Path to appsettings.json file
+  --init               Initialize configuration files
+  --help               Show help message
+```
+
+### Configuration Methods
+
+1. Using appsettings.json:
 ```json
 {
-  "ConnectionStrings": {
-    "DefaultConnection": "Server=localhost;Database=YourDb;User Id=YourUser;Password=YourPwd;"
-  },
   "CodeGenerator": {
+    "ConnectionString": "Server=localhost;Database=YourDb;User Id=YourUser;Password=YourPwd;",
     "ProviderName": "Microsoft.Data.SqlClient",
     "Namespace": "MyGeneratedApp.Data",
     "DbContextName": "MyDbContext",
     "UseDataAnnotations": true,
     "IncludeComments": true,
     "IsPluralize": true,
-    "UsePascalCase": true,
-    "GenerateSeparateFiles": true,
-    "OutputDirectory": "C:\\CodeGenOutput"
+    "OutputDirectory": "./Generated"
   }
 }
 ```
 
-### How to Run
-1. Build and run the project.
-2. The generator will:
-   - Connect to the database.
-   - Read schema information.
-   - Generate entity classes, Fluent API configurations, and `DbContext` files in the specified output directory.
-3. Generated files are ready to integrate into your EF Core project.
+2. Using command line:
+```bash
+efrev -c "Server=localhost;Database=YourDb;" -p "Microsoft.Data.SqlClient" -o "./Models"
+```
+
+3. Using custom config file:
+```bash
+efrev --config "path/to/efrev.json"
+```
+
+4. Mixed approach:
+```bash
+efrev --settings "custom-appsettings.json" --connection "NewConnectionString"
+```
+
+### Configuration Priority
+1. Command line arguments (highest)
+2. Custom configuration file (efrev.json)
+3. appsettings.json (lowest)
 
 ### Example Output
 Given a database table `Users`, the generator will produce:
@@ -104,13 +150,34 @@ modelBuilder.Entity<User>(entity => {
 
 ## Extensibility
 - **Add New Database Support**:
-  Implement `IDatabaseSchemaReader` for additional database providers.
+  Implement `IDatabaseSchemaReader` for additional database providers
 - **Customize Code Output**:
-  Modify `EntityGenerator` to change the structure or style of generated code.
+  Modify `EntityGenerator` to change the structure or style of generated code
+
+## Common Issues and Troubleshooting
+
+### Connection Issues
+If you encounter connection problems:
+1. Verify your connection string
+2. Ensure database provider is correctly specified
+3. Check database permissions
+
+### Configuration Issues
+- Make sure configuration files are in the correct location
+- Verify JSON syntax in configuration files
+- Check file permissions for output directory
 
 ## Contributing
-Contributions are welcome! Please fork the repository and submit a pull request with your improvements.
+Contributions are welcome! Please:
+1. Fork the repository
+2. Create a feature branch
+3. Submit a pull request with your improvements
 
 ## License
 This project is licensed under the [MIT License](LICENSE).
 
+## Release Notes
+- v1.0.0: Initial CLI release
+  - Added command line interface
+  - Support for multiple configuration sources
+  - Improved error handling and feedback
