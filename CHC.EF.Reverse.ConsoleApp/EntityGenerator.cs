@@ -1,6 +1,11 @@
-﻿using System.Security;
+﻿using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
+using System.Security;
 using System.Text;
 using System.Text.RegularExpressions;
+using System.Threading.Tasks;
 
 
 namespace CHC.EF.Reverse.ConsoleApp
@@ -116,7 +121,7 @@ namespace CHC.EF.Reverse.ConsoleApp
             var primaryKeys = table.Columns.Where(c => c.IsPrimaryKey).ToList();
             if (primaryKeys.Any())
             {
-                if (primaryKeys.Count == 1)
+                if (primaryKeys.Count() == 1)
                 {
                     sb.AppendLine($"            HasKey(x => x.{ToPascalCase(primaryKeys[0].ColumnName)});");
                 }

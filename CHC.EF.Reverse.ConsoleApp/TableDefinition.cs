@@ -1,4 +1,7 @@
-﻿namespace CHC.EF.Reverse.ConsoleApp
+﻿using System.Collections.Generic;
+using System.Linq;
+
+namespace CHC.EF.Reverse.ConsoleApp
 {
     /// <summary>
     /// Represents a table definition in the database.

@@ -1,6 +1,9 @@
 ﻿using CommandLine;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using System;
+using System.IO;
+using System.Threading.Tasks;
 
 namespace CHC.EF.Reverse.ConsoleApp
 {

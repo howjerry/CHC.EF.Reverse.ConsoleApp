@@ -1,4 +1,7 @@
-﻿namespace CHC.EF.Reverse.ConsoleApp
+﻿using System;
+using System.IO;
+
+namespace CHC.EF.Reverse.ConsoleApp
 {
     /// <summary>
     /// 負責記錄程式碼生成過程中的日誌。
