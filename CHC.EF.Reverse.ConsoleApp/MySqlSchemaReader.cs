@@ -1,7 +1,10 @@
-﻿using System;
-using System.Collections.Generic;
+﻿// Continuing SqlServerSchemaReader...
+using CHC.EF.Reverse.ConsoleApp;
+using Microsoft.Data.SqlClient;
 using MySql.Data.MySqlClient;
-
+using System.Collections.Generic;
+using System;
+using System.Linq;
 namespace CHC.EF.Reverse.ConsoleApp
 {
     public class MySqlSchemaReader : IDatabaseSchemaReader
@@ -21,25 +24,37 @@ namespace CHC.EF.Reverse.ConsoleApp
             {
                 conn.Open();
 
-                // 讀取資料表
-                using (var cmd = new MySqlCommand("SHOW FULL TABLES WHERE Table_type = 'BASE TABLE'", conn))
-                using (var rdr = cmd.ExecuteReader())
+                // 讀取資料表及其描述
+                using (var cmd = new MySqlCommand(@"
+                SELECT 
+                    TABLE_NAME,
+                    TABLE_SCHEMA,
+                    TABLE_COMMENT
+                FROM information_schema.TABLES 
+                WHERE TABLE_SCHEMA = DATABASE() 
+                AND TABLE_TYPE = 'BASE TABLE'", conn))
                 {
-                    while (rdr.Read())
+                    using (var reader = cmd.ExecuteReader())
                     {
-                        tables.Add(new TableDefinition
+                        while (reader.Read())
                         {
-                            TableName = rdr.GetString(0),
-                            SchemaName = conn.Database
-                        });
+                            tables.Add(new TableDefinition
+                            {
+                                TableName = reader["TABLE_NAME"].ToString(),
+                                SchemaName = reader["TABLE_SCHEMA"].ToString(),
+                                Comment = reader["TABLE_COMMENT"].ToString()
+                            });
+                        }
                     }
                 }
 
-                // 讀取欄位和外鍵
+                // 為每個資料表讀取詳細資訊
                 foreach (var table in tables)
                 {
                     ReadColumns(conn, table);
+                    ReadIndexes(conn, table);
                     ReadForeignKeys(conn, table);
+                    UpdateOneToOneRelationships(table);
                 }
             }
 
@@ -48,104 +63,240 @@ namespace CHC.EF.Reverse.ConsoleApp
 
         private void ReadColumns(MySqlConnection conn, TableDefinition table)
         {
-            using (var cmd = new MySqlCommand($"SHOW FULL COLUMNS FROM `{table.TableName}`", conn))
-            using (var rdr = cmd.ExecuteReader())
+            using (var cmd = new MySqlCommand(@"
+            SELECT 
+                COLUMN_NAME,
+                DATA_TYPE,
+                IS_NULLABLE,
+                CHARACTER_MAXIMUM_LENGTH,
+                NUMERIC_PRECISION,
+                NUMERIC_SCALE,
+                COLUMN_DEFAULT,
+                EXTRA,
+                COLUMN_COMMENT,
+                COLUMN_TYPE,
+                COLLATION_NAME
+            FROM information_schema.COLUMNS 
+            WHERE TABLE_SCHEMA = DATABASE()
+            AND TABLE_NAME = @tableName
+            ORDER BY ORDINAL_POSITION", conn))
             {
-                while (rdr.Read())
+                cmd.Parameters.AddWithValue("@tableName", table.TableName);
+
+                using (var reader = cmd.ExecuteReader())
                 {
-                    var column = new ColumnDefinition
+                    while (reader.Read())
                     {
-                        ColumnName = rdr["Field"].ToString(),
-                        DataType = ParseDataType(rdr["Type"].ToString()),
-                        IsNullable = rdr["Null"].ToString().Equals("YES", StringComparison.OrdinalIgnoreCase),
-                        IsPrimaryKey = rdr["Key"].ToString().Equals("PRI", StringComparison.OrdinalIgnoreCase),
-                        Comment = rdr["Comment"].ToString(),
-                        DefaultValue = rdr["Default"].ToString()
-                    };
-
-                    // 處理自動遞增
-                    column.IsIdentity = rdr["Extra"].ToString().Contains("auto_increment");
-
-                    // 處理欄位長度
-                    if (column.DataType == "string" && rdr["Type"].ToString().Contains("("))
-                    {
-                        var length = rdr["Type"].ToString()
-                            .Split('(', ')')[1]
-                            .Split(',')[0];
-
-                        if (int.TryParse(length, out var maxLength))
+                        var column = new ColumnDefinition
                         {
-                            column.MaxLength = maxLength;
-                        }
-                    }
+                            ColumnName = reader["COLUMN_NAME"].ToString(),
+                            DataType = reader["DATA_TYPE"].ToString(),
+                            IsNullable = reader["IS_NULLABLE"].ToString() == "YES",
+                            Comment = reader["COLUMN_COMMENT"].ToString(),
+                            DefaultValue = reader["COLUMN_DEFAULT"].ToString(),
+                            CollationType = reader["COLLATION_NAME"].ToString(),
+                            IsIdentity = reader["EXTRA"].ToString().Contains("auto_increment"),
+                            IsComputed = reader["EXTRA"].ToString().Contains("VIRTUAL") ||
+                                       reader["EXTRA"].ToString().Contains("STORED"),
+                            GeneratedType = reader["EXTRA"].ToString().Contains("STORED") ? "STORED" :
+                                          reader["EXTRA"].ToString().Contains("VIRTUAL") ? "VIRTUAL" : null
+                        };
 
-                    table.Columns.Add(column);
+                        // 處理最大長度
+                        if (reader["CHARACTER_MAXIMUM_LENGTH"] != DBNull.Value)
+                        {
+                            column.MaxLength = Convert.ToInt32(reader["CHARACTER_MAXIMUM_LENGTH"]);
+                        }
+
+                        // 處理數值精確度
+                        if (reader["NUMERIC_PRECISION"] != DBNull.Value)
+                        {
+                            column.Precision = Convert.ToInt32(reader["NUMERIC_PRECISION"]);
+                            if (reader["NUMERIC_SCALE"] != DBNull.Value)
+                            {
+                                column.Scale = Convert.ToInt32(reader["NUMERIC_SCALE"]);
+                            }
+                        }
+
+                        table.Columns.Add(column);
+                    }
+                }
+            }
+
+            // 讀取主鍵資訊
+            using (var cmd = new MySqlCommand(@"
+            SELECT COLUMN_NAME
+            FROM information_schema.KEY_COLUMN_USAGE
+            WHERE TABLE_SCHEMA = DATABASE()
+            AND TABLE_NAME = @tableName
+            AND CONSTRAINT_NAME = 'PRIMARY'", conn))
+            {
+                cmd.Parameters.AddWithValue("@tableName", table.TableName);
+
+                using (var reader = cmd.ExecuteReader())
+                {
+                    while (reader.Read())
+                    {
+                        var columnName = reader["COLUMN_NAME"].ToString();
+                        var column = table.Columns.First(c => c.ColumnName == columnName);
+                        column.IsPrimaryKey = true;
+                    }
                 }
             }
         }
 
-        private void ReadForeignKeys(MySqlConnection conn, TableDefinition table)
+        private void ReadIndexes(MySqlConnection conn, TableDefinition table)
         {
-            var fkQuery = @"
-                SELECT 
-                    ku.CONSTRAINT_NAME AS ConstraintName,
-                    ku.COLUMN_NAME AS ForeignKeyColumn,
-                    ku.REFERENCED_TABLE_NAME AS PrimaryTable,
-                    ku.REFERENCED_COLUMN_NAME AS PrimaryKeyColumn,
-                    rc.DELETE_RULE AS DeleteRule,
-                    rc.UPDATE_RULE AS UpdateRule
-                FROM INFORMATION_SCHEMA.REFERENTIAL_CONSTRAINTS rc
-                JOIN INFORMATION_SCHEMA.KEY_COLUMN_USAGE ku
-                    ON rc.CONSTRAINT_SCHEMA = ku.TABLE_SCHEMA
-                    AND rc.TABLE_NAME = ku.TABLE_NAME
-                    AND rc.CONSTRAINT_NAME = ku.CONSTRAINT_NAME
-                WHERE ku.TABLE_NAME = @tableName 
-                AND ku.TABLE_SCHEMA = @schemaName";
-
-            using (var cmd = new MySqlCommand(fkQuery, conn))
+            using (var cmd = new MySqlCommand(@"
+            SELECT 
+                INDEX_NAME,
+                NON_UNIQUE,
+                COLUMN_NAME,
+                SEQ_IN_INDEX,
+                COLLATION AS SORT_DIRECTION
+            FROM information_schema.STATISTICS
+            WHERE TABLE_SCHEMA = DATABASE()
+            AND TABLE_NAME = @tableName
+            ORDER BY INDEX_NAME, SEQ_IN_INDEX", conn))
             {
                 cmd.Parameters.AddWithValue("@tableName", table.TableName);
-                cmd.Parameters.AddWithValue("@schemaName", conn.Database);
 
-                using (var rdr = cmd.ExecuteReader())
+                var currentIndexName = string.Empty;
+                IndexDefinition currentIndex = null;
+
+                using (var reader = cmd.ExecuteReader())
                 {
-                    while (rdr.Read())
+                    while (reader.Read())
                     {
-                        table.ForeignKeys.Add(new ForeignKeyDefinition
+                        var indexName = reader["INDEX_NAME"].ToString();
+
+                        if (indexName != currentIndexName)
                         {
-                            ConstraintName = rdr["ConstraintName"].ToString(),
-                            ForeignKeyColumn = rdr["ForeignKeyColumn"].ToString(),
-                            PrimaryTable = rdr["PrimaryTable"].ToString(),
-                            PrimaryKeyColumn = rdr["PrimaryKeyColumn"].ToString(),
-                            DeleteRule = rdr["DeleteRule"].ToString(),
-                            UpdateRule = rdr["UpdateRule"].ToString()
+                            currentIndex = new IndexDefinition
+                            {
+                                IndexName = indexName,
+                                IsUnique = !Convert.ToBoolean(reader["NON_UNIQUE"]),
+                                IsPrimaryKey = indexName == "PRIMARY",
+                                IsDisabled = false,
+                                Columns = new List<IndexColumnDefinition>()
+                            };
+
+                            table.Indexes.Add(currentIndex);
+                            currentIndexName = indexName;
+                        }
+
+                        currentIndex.Columns.Add(new IndexColumnDefinition
+                        {
+                            ColumnName = reader["COLUMN_NAME"].ToString(),
+                            IsDescending = reader["SORT_DIRECTION"].ToString() == "D",
+                            KeyOrdinal = Convert.ToInt32(reader["SEQ_IN_INDEX"]),
+                            IsIncluded = false // MySQL 不支援包含的欄位
                         });
                     }
                 }
             }
         }
 
-        private string ParseDataType(string sqlType)
+        private void ReadForeignKeys(MySqlConnection conn, TableDefinition table)
         {
-            sqlType = sqlType.ToLower();
-            if (sqlType.Contains("int")) return "int";
-            if (sqlType.Contains("bigint")) return "long";
-            if (sqlType.Contains("decimal") || sqlType.Contains("numeric"))
+            using (var cmd = new MySqlCommand(@"
+            SELECT 
+                CONSTRAINT_NAME,
+                COLUMN_NAME,
+                REFERENCED_TABLE_NAME,
+                REFERENCED_COLUMN_NAME
+            FROM information_schema.KEY_COLUMN_USAGE
+            WHERE TABLE_SCHEMA = DATABASE()
+            AND TABLE_NAME = @tableName
+            AND REFERENCED_TABLE_NAME IS NOT NULL
+            ORDER BY CONSTRAINT_NAME, ORDINAL_POSITION", conn))
             {
-                var match = System.Text.RegularExpressions.Regex.Match(sqlType, @"decimal\((\d+),(\d+)\)");
-                if (match.Success)
+                cmd.Parameters.AddWithValue("@tableName", table.TableName);
+
+                var currentFkName = string.Empty;
+                ForeignKeyDefinition currentFk = null;
+
+                using (var reader = cmd.ExecuteReader())
                 {
-                    var precision = int.Parse(match.Groups[1].Value);
-                    var scale = int.Parse(match.Groups[2].Value);
-                    return $"decimal({precision}, {scale})";
+                    while (reader.Read())
+                    {
+                        var constraintName = reader["CONSTRAINT_NAME"].ToString();
+
+                        if (constraintName != currentFkName)
+                        {
+                            currentFk = new ForeignKeyDefinition
+                            {
+                                ConstraintName = constraintName,
+                                PrimaryTable = reader["REFERENCED_TABLE_NAME"].ToString(),
+                                ColumnPairs = new List<ForeignKeyColumnPair>(),
+                                IsEnabled = true
+                            };
+
+                            // 讀取刪除和更新規則
+                            ReadForeignKeyRules(conn, table.TableName, constraintName, currentFk);
+
+                            table.ForeignKeys.Add(currentFk);
+                            currentFkName = constraintName;
+                        }
+
+                        currentFk.ColumnPairs.Add(new ForeignKeyColumnPair
+                        {
+                            ForeignKeyColumn = reader["COLUMN_NAME"].ToString(),
+                            PrimaryKeyColumn = reader["REFERENCED_COLUMN_NAME"].ToString()
+                        });
+
+                        if (currentFk.ColumnPairs.Count == 1)
+                        {
+                            currentFk.ForeignKeyColumn = reader["COLUMN_NAME"].ToString();
+                            currentFk.PrimaryKeyColumn = reader["REFERENCED_COLUMN_NAME"].ToString();
+                        }
+
+                        currentFk.IsCompositeKey = currentFk.ColumnPairs.Count > 1;
+                    }
                 }
-                return "decimal";
             }
-            if (sqlType.Contains("datetime")) return "DateTime";
-            if (sqlType.Contains("json")) return "string";
-            if (sqlType.Contains("char") || sqlType.Contains("text")) return "string";
-            if (sqlType.Contains("bit")) return "bool";
-            return "string";
+        }
+
+        private void ReadForeignKeyRules(MySqlConnection conn, string tableName, string constraintName, ForeignKeyDefinition fk)
+        {
+            using (var cmd = new MySqlCommand(@"
+            SELECT 
+                DELETE_RULE,
+                UPDATE_RULE
+            FROM information_schema.REFERENTIAL_CONSTRAINTS
+            WHERE CONSTRAINT_SCHEMA = DATABASE()
+            AND TABLE_NAME = @tableName
+            AND CONSTRAINT_NAME = @constraintName", conn))
+            {
+                cmd.Parameters.AddWithValue("@tableName", tableName);
+                cmd.Parameters.AddWithValue("@constraintName", constraintName);
+
+                using (var reader = cmd.ExecuteReader())
+                {
+                    if (reader.Read())
+                    {
+                        fk.DeleteRule = reader["DELETE_RULE"].ToString();
+                        fk.UpdateRule = reader["UPDATE_RULE"].ToString();
+                    }
+                }
+            }
+        }
+
+        private void UpdateOneToOneRelationships(TableDefinition table)
+        {
+            foreach (var fk in table.ForeignKeys)
+            {
+                // 檢查是否存在唯一索引只包含這個外鍵列
+                var hasUniqueConstraint = table.Indexes
+                    .Where(idx => idx.IsUnique && !idx.IsPrimaryKey)
+                    .Any(idx => idx.Columns.Count == 1 &&
+                               idx.Columns[0].ColumnName == fk.ForeignKeyColumn);
+
+                if (hasUniqueConstraint)
+                {
+                    fk.Comment = (fk.Comment ?? "") + " [One-to-One Relationship]";
+                }
+            }
         }
     }
 }
