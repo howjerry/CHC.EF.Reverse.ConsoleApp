@@ -79,7 +79,7 @@ namespace CHC.EF.Reverse.ConsoleApp
                     c.is_computed AS IsComputed,
                     c.collation_name AS CollationType,
                     cc.definition AS ComputedDefinition,
-                    c.is_rowversion AS IsRowVersion,
+                    COLUMNPROPERTY(c.object_id, c.name, 'IsRowVersion') AS IsRowVersion,
                     ep.value AS Comment,
                     dc.definition AS DefaultDefinition,
                     CASE WHEN c.generated_always_type > 0 THEN 'ALWAYS' 
@@ -126,7 +126,11 @@ namespace CHC.EF.Reverse.ConsoleApp
                             IsIdentity = Convert.ToBoolean(reader["IsIdentity"]),
                             IsComputed = Convert.ToBoolean(reader["IsComputed"]),
                             CollationType = reader["CollationType"].ToString(),
-                            IsRowVersion = Convert.ToBoolean(reader["IsRowVersion"]),
+                            IsRowVersion = reader["IsRowVersion"] != DBNull.Value 
+                            ?
+                                Convert.ToBoolean(reader["IsRowVersion"]) 
+                            :
+                                false,
                             GeneratedType = reader["GeneratedType"].ToString(),
                             ComputedColumnDefinition = reader["ComputedDefinition"].ToString(),
                             Comment = reader["Comment"].ToString(),
@@ -140,29 +144,25 @@ namespace CHC.EF.Reverse.ConsoleApp
         private void ReadIndexes(SqlConnection conn, TableDefinition table)
         {
             using (var cmd = new SqlCommand(@"
-                SELECT 
-                    i.name AS IndexName,
-                    i.is_unique AS IsUnique,
-                    i.is_primary_key AS IsPrimaryKey,
-                    i.is_disabled AS IsDisabled,
-                    i.type_desc AS IndexType,
-                    i.is_padded AS IsPadded,
-                    i.fill_factor AS FillFactor,
-                    i.has_filter AS HasFilter,
-                    i.filter_definition AS FilterDefinition,
-                    ic.key_ordinal AS KeyOrdinal,
-                    ic.is_descending_key AS IsDescending,
-                    ic.is_included_column AS IsIncluded,
-                    c.name AS ColumnName
-                FROM sys.indexes i
-                INNER JOIN sys.index_columns ic ON 
-                    i.object_id = ic.object_id AND 
-                    i.index_id = ic.index_id
-                INNER JOIN sys.columns c ON 
-                    ic.object_id = c.object_id AND 
-                    ic.column_id = c.column_id
-                WHERE i.object_id = OBJECT_ID(@tableName)
-                ORDER BY i.index_id, ic.key_ordinal", conn))
+    SELECT 
+        i.name AS IndexName,
+        i.is_unique AS IsUnique,
+        i.is_primary_key AS IsPrimaryKey,
+        i.is_disabled AS IsDisabled,
+        i.type_desc AS IndexType,
+        i.is_padded AS IsPadded,
+        ic.key_ordinal AS KeyOrdinal,
+        ic.is_descending_key AS IsDescending,
+        ic.is_included_column AS IsIncluded,
+        c.name AS ColumnName
+    FROM sys.indexes i
+    INNER JOIN sys.index_columns ic ON 
+        i.object_id = ic.object_id AND 
+        i.index_id = ic.index_id
+    INNER JOIN sys.columns c ON 
+        ic.object_id = c.object_id AND 
+        ic.column_id = c.column_id
+    WHERE i.object_id = OBJECT_ID(@tableName)", conn))
             {
                 cmd.Parameters.AddWithValue("@tableName", $"{table.SchemaName}.{table.TableName}");
 
@@ -184,9 +184,6 @@ namespace CHC.EF.Reverse.ConsoleApp
                                 IsPrimaryKey = Convert.ToBoolean(reader["IsPrimaryKey"]),
                                 IsDisabled = Convert.ToBoolean(reader["IsDisabled"]),
                                 IndexType = reader["IndexType"].ToString(),
-                                IsPadded = Convert.ToBoolean(reader["IsPadded"]),
-                                FillFactor = Convert.ToInt32(reader["FillFactor"]),
-                                FilterDefinition = reader["FilterDefinition"]?.ToString(),
                                 Columns = new List<IndexColumnDefinition>()
                             };
 

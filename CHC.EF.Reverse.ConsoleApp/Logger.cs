@@ -1,5 +1,6 @@
 ﻿using System;
 using System.IO;
+using System.Threading;
 
 namespace CHC.EF.Reverse.ConsoleApp
 {
@@ -47,7 +48,22 @@ namespace CHC.EF.Reverse.ConsoleApp
         {
             var logMessage = $"{DateTime.Now:yyyy-MM-dd HH:mm:ss} [{level}] {message}";
             Console.WriteLine(logMessage);
-            File.AppendAllText(_logPath, logMessage + Environment.NewLine);
+
+            int retries = 3;
+            while (retries > 0)
+            {
+                try
+                {
+                    File.AppendAllText(_logPath, logMessage + Environment.NewLine);
+                    break;
+                }
+                catch (IOException)
+                {
+                    retries--;
+                    if (retries == 0) throw;
+                    Thread.Sleep(100);
+                }
+            }
         }
     }
 }

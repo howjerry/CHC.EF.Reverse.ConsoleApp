@@ -110,7 +110,7 @@ namespace CHC.EF.Reverse.ConsoleApp
         public List<IndexColumnDefinition> Columns { get; set; } = new List<IndexColumnDefinition>();
         public bool IsClustered { get; set; }
         public string FilterDefinition { get; set; }
-        public int FillFactor { get; set; }
+        public int FillFactor { get; set; } = 0;
         public bool IsPadded { get; set; }
     }
 
