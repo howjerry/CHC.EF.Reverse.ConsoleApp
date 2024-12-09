@@ -115,4 +115,10 @@ modelBuilder.Entity<Order>(entity =>
 ```
 
 ## License
-[MIT License](LICENSE)
+This project is licensed under the [MIT License](LICENSE).
+
+## Release Notes
+- v1.0.0: Initial CLI release
+  - Added command line interface
+  - Support for multiple configuration sources
+  - Improved error handling and feedback

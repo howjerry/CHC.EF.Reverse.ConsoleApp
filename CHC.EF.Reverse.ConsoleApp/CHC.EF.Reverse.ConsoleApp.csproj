@@ -6,7 +6,7 @@
     <PackAsTool>true</PackAsTool>
     <ToolCommandName>efrev</ToolCommandName>
     <PackageOutputPath>./nupkg</PackageOutputPath>
-    <Version>1.1.0</Version>
+    <Version>1.2.0</Version>
     <PackageId>CHC.EF.Reverse.Poco</PackageId>
     <Authors>CHC</Authors>
     <Description>A .NET Global Tool for reverse engineering databases to Entity Framework Core models</Description>

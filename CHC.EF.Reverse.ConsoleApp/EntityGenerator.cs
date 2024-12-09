@@ -14,11 +14,13 @@ namespace CHC.EF.Reverse.ConsoleApp
     {
         private readonly Settings _settings;
         private readonly ILogger _logger;
+        private readonly List<TableDefinition> _tables;
 
-        public EntityGenerator(Settings settings, ILogger logger)
+        public EntityGenerator(Settings settings, ILogger logger, List<TableDefinition> tables)
         {
             _settings = settings;
             _logger = logger;
+            _tables = tables;
         }
 
         public async Task GenerateAsync(List<TableDefinition> tables)
@@ -138,42 +140,66 @@ namespace CHC.EF.Reverse.ConsoleApp
         {
             foreach (var fk in table.ForeignKeys)
             {
-                var foreignKeyProperty = ToPascalCase(fk.ForeignKeyColumn);
                 var navigationProperty = ToPascalCase(fk.PrimaryTable);
-                var inverseNavigationProperty = Pluralize(ToPascalCase(table.TableName));
+                var foreignKeyProperty = ToPascalCase(fk.ForeignKeyColumn);
 
-                var isRequired = table.Columns
-                    .First(c => c.ColumnName == fk.ForeignKeyColumn)
-                    .IsNullable == false;
-
-                sb.AppendLine();
-                if (isRequired)
+                // One-to-One relationship
+                if (table.IsOneToOne(fk.ForeignKeyColumn))
                 {
                     sb.AppendLine($"            HasRequired(x => x.{navigationProperty})");
-                }
-                else
-                {
-                    sb.AppendLine($"            HasOptional(x => x.{navigationProperty})");
-                }
-
-                if (table.IsManyToMany)
-                {
-                    sb.AppendLine($"                .WithMany(x => x.{inverseNavigationProperty})");
-                }
-                else if (IsCollectionNavigation(fk, table))
-                {
-                    sb.AppendLine($"                .WithMany(x => x.{inverseNavigationProperty})");
-                }
-                else
-                {
                     sb.AppendLine($"                .WithOptional(x => x.{ToPascalCase(table.TableName)})");
                 }
+                // One-to-Many relationship
+                else
+                {
+                    var isRequired = !table.Columns.First(c => c.ColumnName == fk.ForeignKeyColumn).IsNullable;
+                    var inverseCollection = Pluralize(ToPascalCase(table.TableName));
 
-                sb.AppendLine($"                .HasForeignKey(x => x.{foreignKeyProperty})");
+                    if (isRequired)
+                    {
+                        sb.AppendLine($"            HasRequired(x => x.{navigationProperty})");
+                    }
+                    else
+                    {
+                        sb.AppendLine($"            HasOptional(x => x.{navigationProperty})");
+                    }
 
-                ConfigureDeleteBehavior(sb, fk);
+                    sb.AppendLine($"                .WithMany(x => x.{inverseCollection})");
+                    sb.AppendLine($"                .HasForeignKey(x => x.{foreignKeyProperty})");
 
+                    if (fk.DeleteRule?.ToUpper() == "CASCADE")
+                    {
+                        sb.AppendLine("                .WillCascadeOnDelete(true)");
+                    }
+                    else
+                    {
+                        sb.AppendLine("                .WillCascadeOnDelete(false)");
+                    }
+                }
                 sb.AppendLine("                ;");
+                sb.AppendLine();
+            }
+
+            // Many-to-Many relationships
+            if (!table.IsManyToMany)
+            {
+                var manyToManyRelationships = GetManyToManyRelationships(table);
+                foreach (var rel in manyToManyRelationships)
+                {
+                    var otherEntity = ToPascalCase(rel.RelatedTable);
+                    var thisCollection = Pluralize(otherEntity);
+                    var otherCollection = Pluralize(ToPascalCase(table.TableName));
+
+                    sb.AppendLine($"            HasMany(x => x.{thisCollection})");
+                    sb.AppendLine($"                .WithMany(x => x.{otherCollection})");
+                    sb.AppendLine($"                .Map(m =>");
+                    sb.AppendLine($"                {{");
+                    sb.AppendLine($"                    m.ToTable(\"{rel.JunctionTable}\");");
+                    sb.AppendLine($"                    m.MapLeftKey(\"{table.TableName}Id\");");
+                    sb.AppendLine($"                    m.MapRightKey(\"{rel.RelatedTable}Id\");");
+                    sb.AppendLine($"                }});");
+                    sb.AppendLine();
+                }
             }
         }
 
@@ -198,6 +224,7 @@ namespace CHC.EF.Reverse.ConsoleApp
         {
             var sb = new StringBuilder();
             var className = ToPascalCase(table.TableName);
+            var hasCollectionProperties = false;
 
             sb.AppendLine("using System;");
             sb.AppendLine("using System.Collections.Generic;");
@@ -236,17 +263,19 @@ namespace CHC.EF.Reverse.ConsoleApp
                 if (_settings.UseDataAnnotations)
                 {
                     if (column.IsPrimaryKey)
-                    {
                         sb.AppendLine("        [Key]");
-                    }
+
                     if (!column.IsNullable)
-                    {
                         sb.AppendLine("        [Required]");
-                    }
-                    if (column.MaxLength.HasValue)
-                    {
-                        sb.AppendLine($"        [MaxLength({column.MaxLength.Value})]");
-                    }
+
+                    if (column.MaxLength.HasValue && column.DataType.ToLower() == "string")
+                        sb.AppendLine($"        [StringLength({column.MaxLength.Value})]");
+
+                    if (column.DataType.ToLower() == "decimal" || column.DataType.ToLower() == "numeric")
+                        sb.AppendLine($"        [Column(TypeName = \"decimal({column.Precision},{column.Scale})\")]");
+
+                    if (column.ColumnName.ToLower().Contains("email"))
+                        sb.AppendLine("        [EmailAddress]");
                 }
 
                 var propertyType = GetPropertyType(column);
@@ -262,24 +291,34 @@ namespace CHC.EF.Reverse.ConsoleApp
             // Navigation Properties
             if (_settings.IncludeForeignKeys)
             {
+                // One-to-One and One-to-Many navigation properties
                 foreach (var fk in table.ForeignKeys)
                 {
-                    var navigationPropertyType = ToPascalCase(fk.PrimaryTable);
-                    sb.AppendLine($"        public virtual {navigationPropertyType} {navigationPropertyType} {{ get; set; }}");
+                    var refTableName = ToPascalCase(fk.PrimaryTable);
+                    sb.AppendLine($"        public virtual {refTableName} {refTableName} {{ get; set; }}");
                     sb.AppendLine();
                 }
-            }
 
-            // 多對多導航屬性
-            if (table.IsManyToMany && _settings.IncludeManyToMany)
-            {
-                foreach (var fk in table.ForeignKeys)
+                // Inverse navigation properties for tables referencing this one
+                foreach (var referencingTable in _tables.Where(t => !t.IsManyToMany &&
+                    t.ForeignKeys.Any(fk => fk.PrimaryTable == table.TableName)))
                 {
-                    var otherTable = fk.PrimaryTable;
-                    if (!string.Equals(otherTable, table.TableName, StringComparison.OrdinalIgnoreCase))
+                    var referencingClassName = ToPascalCase(referencingTable.TableName);
+                    var collectionName = Pluralize(referencingClassName);
+
+                    sb.AppendLine($"        public virtual ICollection<{referencingClassName}> {collectionName} {{ get; set; }}");
+                    sb.AppendLine();
+                }
+
+                // Many-to-Many collection properties
+                if (!table.IsManyToMany)
+                {
+                    var manyToManyRelationships = GetManyToManyRelationships(table);
+                    foreach (var rel in manyToManyRelationships)
                     {
-                        var collectionName = Pluralize(ToPascalCase(otherTable));
-                        sb.AppendLine($"        public virtual ICollection<{ToPascalCase(otherTable)}> {collectionName} {{ get; set; }}");
+                        var relatedEntity = ToPascalCase(rel.RelatedTable);
+                        sb.AppendLine($"        public virtual ICollection<{relatedEntity}> {Pluralize(relatedEntity)} {{ get; set; }}");
+                        sb.AppendLine();
                     }
                 }
             }
@@ -290,6 +329,35 @@ namespace CHC.EF.Reverse.ConsoleApp
             var filePath = Path.Combine(outputDir, $"{className}.cs");
             await File.WriteAllTextAsync(filePath, sb.ToString());
             _logger.Info($"Generated entity class: {filePath}");
+        }
+
+        private List<ManyToManyRelationship> GetManyToManyRelationships(TableDefinition table)
+        {
+            var relationships = new List<ManyToManyRelationship>();
+
+            foreach (var junctionTable in _tables.Where(t => t.IsManyToMany))
+            {
+                var fks = junctionTable.ForeignKeys;
+                if (fks.Count != 2) continue;
+
+                if (fks[0].PrimaryTable == table.TableName)
+                {
+                    relationships.Add(new ManyToManyRelationship
+                    {
+                        JunctionTable = junctionTable.TableName,
+                        RelatedTable = fks[1].PrimaryTable
+                    });
+                }
+                else if (fks[1].PrimaryTable == table.TableName)
+                {
+                    relationships.Add(new ManyToManyRelationship
+                    {
+                        JunctionTable = junctionTable.TableName,
+                        RelatedTable = fks[0].PrimaryTable
+                    });
+                }
+            }
+            return relationships;
         }
 
         private string ToPascalCase(string text)
@@ -331,16 +399,19 @@ namespace CHC.EF.Reverse.ConsoleApp
         {
             return column.DataType.ToLower() switch
             {
+                "datetime" or "datetime2" or "smalldatetime" => "DateTime",
+                "datetimeoffset" => "DateTimeOffset",
+                "date" => "DateTime",
+                "time" => "TimeSpan",
                 "int" => "int",
                 "bigint" => "long",
-                "decimal" => "decimal",
-                "money" => "decimal",
-                "float" => "double",
-                "datetime" => "DateTime",
-                "datetimeoffset" => "DateTimeOffset",
+                "smallint" => "short",
+                "tinyint" => "byte",
                 "bit" => "bool",
-                "xml" => "string",
-                "json" => "string",
+                "decimal" or "money" or "smallmoney" => "decimal",
+                "float" => "double",
+                "real" => "float",
+                "uniqueidentifier" => "Guid",
                 _ => "string"
             };
         }

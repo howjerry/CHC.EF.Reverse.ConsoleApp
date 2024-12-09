@@ -41,7 +41,7 @@ namespace CHC.EF.Reverse.ConsoleApp
                 Directory.CreateDirectory(configOutputDir);
 
                 // 生成實體類
-                var entityGenerator = new EntityGenerator(_settings, _logger);
+                var entityGenerator = new EntityGenerator(_settings, _logger, tables);
                 await entityGenerator.GenerateAsync(tables);
 
                 // 生成 DbContext
