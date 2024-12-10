@@ -5,30 +5,40 @@ using System;
 using System.IO;
 using System.Threading.Tasks;
 
+
 namespace CHC.EF.Reverse.ConsoleApp
 {
     class Program
     {
         static async Task Main(string[] args)
         {
+
+
             await Parser.Default.ParseArguments<Options>(args)
                 .WithParsedAsync(async options =>
                 {
+                    IServiceProvider provider = null;
                     try
                     {
+                        var services = new ServiceCollection();
+                        services.AddSingleton<ILogger, Logger>();
+                        services.AddSingleton<IDatabaseSchemaReaderFactory, DatabaseSchemaReaderFactory>();
+                        services.AddTransient<CodeGenerationService>();
+                      
                         var settings = await GetSettingsAsync(options);
-                        var services = ConfigureServices(settings);
+                        services.AddSingleton(Microsoft.Extensions.Options.Options.Create(settings));
+                        provider = services.BuildServiceProvider();
 
-                        using (var scope = services.CreateScope())
+                        using (var scope = provider.CreateScope())
                         {
+                            var logger = scope.ServiceProvider.GetRequiredService<ILogger>();
                             var codeGenService = scope.ServiceProvider.GetRequiredService<CodeGenerationService>();
                             await codeGenService.Run();
-                            Console.WriteLine("Code generation completed successfully.");
                         }
                     }
                     catch (Exception ex)
                     {
-                        Console.WriteLine($"Error: {ex.Message}");
+                        provider?.GetService<ILogger>()?.Error(ex.Message);
                         Environment.Exit(1);
                     }
                 });
@@ -38,9 +48,9 @@ namespace CHC.EF.Reverse.ConsoleApp
         {
             Settings settings = new Settings();
 
-            // 1. 嘗試從 appsettings.json 讀取基本設定(開發測試用)
-            if (File.Exists(options.ConfigFile))
+            if (!string.IsNullOrEmpty(options.ConfigFile) && File.Exists(options.ConfigFile))
             {
+
                 var configuration = new ConfigurationBuilder()
                     .SetBasePath(Directory.GetCurrentDirectory())
                     .AddJsonFile(options.ConfigFile)
@@ -51,27 +61,9 @@ namespace CHC.EF.Reverse.ConsoleApp
                 {
                     settings = section.Get<Settings>();
                 }
-                else
-                {
-                    Console.WriteLine("Warning: 'CodeGenerator' section not found in appsettings.json");
-                }
-            }
-            else
-            {
-                Console.WriteLine($"Warning: {options.ConfigFile} not found");
             }
 
-            // 2. 如果指定了自定義配置文件，覆蓋設定
-            if (!string.IsNullOrEmpty(options.ConfigFile) && File.Exists(options.ConfigFile))
-            {
-                var jsonConfig = await File.ReadAllTextAsync(options.ConfigFile);
-                var customSettings = System.Text.Json.JsonSerializer.Deserialize<Settings>(jsonConfig);
-
-                // 合併設定
-                settings = MergeSettings(settings, customSettings);
-            }
-
-            // 3. 命令列參數優先，覆蓋之前的設定
+            // 命令列參數優先，覆蓋之前的設定
             settings = MergeSettings(settings, new Settings
             {
                 ConnectionString = options.ConnectionString,
@@ -116,19 +108,6 @@ namespace CHC.EF.Reverse.ConsoleApp
 
             if (string.IsNullOrEmpty(settings.OutputDirectory))
                 settings.OutputDirectory = "./Generated";
-        }
-
-        private static ServiceProvider ConfigureServices(Settings settings)
-        {
-            var services = new ServiceCollection();
-
-            services.AddSingleton<ILogger, Logger>();
-            services.AddSingleton<IDatabaseSchemaReaderFactory, DatabaseSchemaReaderFactory>();
-            services.AddTransient<CodeGenerationService>();
-
-            services.AddSingleton(Microsoft.Extensions.Options.Options.Create(settings));
-
-            return services.BuildServiceProvider();
         }
     }
 }
