@@ -44,13 +44,12 @@ namespace CHC.EF.Reverse.ConsoleApp
                 });
         }
 
-        private static async Task<Settings> GetSettingsAsync(Options options)
+        private static Task<Settings> GetSettingsAsync(Options options)
         {
             Settings settings = new Settings();
 
             if (!string.IsNullOrEmpty(options.ConfigFile) && File.Exists(options.ConfigFile))
             {
-
                 var configuration = new ConfigurationBuilder()
                     .SetBasePath(Directory.GetCurrentDirectory())
                     .AddJsonFile(options.ConfigFile)
@@ -75,7 +74,7 @@ namespace CHC.EF.Reverse.ConsoleApp
             });
 
             ValidateSettings(settings);
-            return settings;
+            return Task.FromResult(settings);
         }
 
         private static Settings MergeSettings(Settings target, Settings source)
