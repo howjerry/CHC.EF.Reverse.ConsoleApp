@@ -30,6 +30,15 @@ namespace CHC.EF.Reverse.ConsoleApp
         }
 
         /// <summary>
+        /// 記錄警告級別的日誌。
+        /// </summary>
+        /// <param name="message">日誌訊息。</param>
+        public void Warning(string message)
+        {
+            WriteLog("WARNING", message);
+        }
+
+        /// <summary>
         /// 記錄錯誤級別的日誌。
         /// </summary>
         /// <param name="message">日誌訊息。</param>
