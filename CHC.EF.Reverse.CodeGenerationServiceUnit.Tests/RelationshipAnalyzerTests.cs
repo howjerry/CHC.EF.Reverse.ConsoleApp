@@ -5,7 +5,9 @@ using Moq;
 using System;
 using System.Collections.Generic;
 using FluentAssertions;
-using CHC.EF.Reverse.ConsoleApp;
+using CHC.EF.Reverse.ConsoleApp.Core.Interfaces;
+using CHC.EF.Reverse.ConsoleApp.Core.Models;
+using CHC.EF.Reverse.ConsoleApp.Exceptions;
 
 /// <summary>
 /// 提供 RelationshipAnalyzer 類別的單元測試。

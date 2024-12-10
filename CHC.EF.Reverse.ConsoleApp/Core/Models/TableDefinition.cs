@@ -1,7 +1,7 @@
 ﻿using System.Collections.Generic;
 using System.Linq;
 
-namespace CHC.EF.Reverse.ConsoleApp
+namespace CHC.EF.Reverse.ConsoleApp.Core.Models
 {
     public class TableDefinition
     {
@@ -124,73 +124,5 @@ namespace CHC.EF.Reverse.ConsoleApp
                 return Columns.Count <= ForeignKeys.Count + MaxAdditionalColumns;
             }
         }
-    }
-
-    public class ColumnDefinition
-    {
-        public string ColumnName { get; set; }
-        public string DataType { get; set; }
-        public bool IsNullable { get; set; }
-        public bool IsPrimaryKey { get; set; }
-        public bool IsIdentity { get; set; }
-        public bool IsComputed { get; set; }
-        public string DefaultValue { get; set; }
-        public long? MaxLength { get; set; }
-        public int? Precision { get; set; }
-        public int? Scale { get; set; }
-        public string Comment { get; set; }
-        public bool IsUnique { get; set; }
-        public List<IndexDefinition> ParticipatingIndexes { get; set; } = new List<IndexDefinition>();
-
-        // 新增的擴展屬性
-        public string CollationType { get; set; }
-        public bool IsRowVersion { get; set; }
-        public string GeneratedType { get; set; } // ALWAYS/BY DEFAULT for generated columns
-        public string ComputedColumnDefinition { get; set; }
-    }
-
-    public class ForeignKeyDefinition
-    {
-        public string ConstraintName { get; set; }
-        public string ForeignKeyColumn { get; set; }
-        public string PrimaryTable { get; set; }
-        public string PrimaryKeyColumn { get; set; }
-        public string DeleteRule { get; set; }
-        public string UpdateRule { get; set; }
-        public bool IsCompositeKey { get; set; }
-        public string Comment { get; set; }
-        public List<ForeignKeyColumnPair> ColumnPairs { get; set; } = new List<ForeignKeyColumnPair>();
-
-        // 新增的擴展屬性
-        public bool IsEnabled { get; set; } = true;
-        public bool IsNotForReplication { get; set; }
-    }
-
-    public class ForeignKeyColumnPair
-    {
-        public string ForeignKeyColumn { get; set; }
-        public string PrimaryKeyColumn { get; set; }
-    }
-
-    public class IndexDefinition
-    {
-        public string IndexName { get; set; }
-        public bool IsUnique { get; set; }
-        public bool IsPrimaryKey { get; set; }
-        public bool IsDisabled { get; set; }
-        public string IndexType { get; set; } // CLUSTERED/NONCLUSTERED
-        public List<IndexColumnDefinition> Columns { get; set; } = new List<IndexColumnDefinition>();
-        public bool IsClustered { get; set; }
-        public string FilterDefinition { get; set; }
-        public int FillFactor { get; set; } = 0;
-        public bool IsPadded { get; set; }
-    }
-
-    public class IndexColumnDefinition
-    {
-        public string ColumnName { get; set; }
-        public bool IsDescending { get; set; }
-        public int KeyOrdinal { get; set; }
-        public bool IsIncluded { get; set; }
     }
 }

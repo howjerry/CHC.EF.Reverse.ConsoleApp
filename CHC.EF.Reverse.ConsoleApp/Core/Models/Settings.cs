@@ -1,6 +1,6 @@
 ﻿using System.Collections.Generic;
 
-namespace CHC.EF.Reverse.ConsoleApp
+namespace CHC.EF.Reverse.ConsoleApp.Core.Models
 {
     /// <summary>
     /// Represents the configuration settings for the code generator.

@@ -5,6 +5,9 @@ using System.Collections.Generic;
 using System.IO;
 using System.Threading.Tasks;
 using System;
+using CHC.EF.Reverse.ConsoleApp.Core.Interfaces;
+using CHC.EF.Reverse.ConsoleApp.Core.Models;
+using CHC.EF.Reverse.ConsoleApp.Core.Services;
 
 namespace CHC.EF.Reverse.ConsoleApp.Tests
 {

@@ -1,6 +1,6 @@
 ﻿using System;
 
-namespace CHC.EF.Reverse.ConsoleApp
+namespace CHC.EF.Reverse.ConsoleApp.Exceptions
 {
 
     /// <summary>

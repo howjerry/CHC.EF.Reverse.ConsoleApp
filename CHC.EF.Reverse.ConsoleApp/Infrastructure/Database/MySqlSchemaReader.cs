@@ -1,12 +1,13 @@
 ﻿// Continuing SqlServerSchemaReader...
-using CHC.EF.Reverse.ConsoleApp;
 using Microsoft.Data.SqlClient;
 using MySql.Data.MySqlClient;
 using System.Collections.Generic;
 using System;
 using System.Linq;
 using System.Reflection.PortableExecutable;
-namespace CHC.EF.Reverse.ConsoleApp
+using CHC.EF.Reverse.ConsoleApp.Core.Interfaces;
+using CHC.EF.Reverse.ConsoleApp.Core.Models;
+namespace CHC.EF.Reverse.ConsoleApp.Infrastructure.Database
 {
     public class MySqlSchemaReader : IDatabaseSchemaReader
     {

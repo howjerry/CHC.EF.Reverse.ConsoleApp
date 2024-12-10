@@ -1,7 +1,9 @@
 ﻿using System;
+using CHC.EF.Reverse.ConsoleApp.Core.Interfaces;
+using CHC.EF.Reverse.ConsoleApp.Core.Models;
 using Microsoft.Extensions.Options;
 
-namespace CHC.EF.Reverse.ConsoleApp
+namespace CHC.EF.Reverse.ConsoleApp.Infrastructure.Database
 {
     public class DatabaseSchemaReaderFactory : IDatabaseSchemaReaderFactory
     {

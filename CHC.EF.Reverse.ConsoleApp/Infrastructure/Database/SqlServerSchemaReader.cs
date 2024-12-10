@@ -2,10 +2,12 @@
 using System.Collections.Generic;
 using System.Data;
 using System.Linq;
+using CHC.EF.Reverse.ConsoleApp.Core.Interfaces;
+using CHC.EF.Reverse.ConsoleApp.Core.Models;
 using Microsoft.Data.SqlClient;
 using MySql.Data.MySqlClient;
 
-namespace CHC.EF.Reverse.ConsoleApp
+namespace CHC.EF.Reverse.ConsoleApp.Infrastructure.Database
 {
     public class SqlServerSchemaReader : IDatabaseSchemaReader
     {
@@ -126,9 +128,9 @@ namespace CHC.EF.Reverse.ConsoleApp
                             IsIdentity = Convert.ToBoolean(reader["IsIdentity"]),
                             IsComputed = Convert.ToBoolean(reader["IsComputed"]),
                             CollationType = reader["CollationType"].ToString(),
-                            IsRowVersion = reader["IsRowVersion"] != DBNull.Value 
+                            IsRowVersion = reader["IsRowVersion"] != DBNull.Value
                             ?
-                                Convert.ToBoolean(reader["IsRowVersion"]) 
+                                Convert.ToBoolean(reader["IsRowVersion"])
                             :
                                 false,
                             GeneratedType = reader["GeneratedType"].ToString(),

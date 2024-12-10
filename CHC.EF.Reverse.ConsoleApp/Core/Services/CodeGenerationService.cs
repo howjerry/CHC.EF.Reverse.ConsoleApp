@@ -1,10 +1,13 @@
-﻿using Microsoft.Extensions.Options;
+﻿using CHC.EF.Reverse.ConsoleApp.Core.Interfaces;
+using CHC.EF.Reverse.ConsoleApp.Core.Models;
+using CHC.EF.Reverse.ConsoleApp.Infrastructure.Generators;
+using Microsoft.Extensions.Options;
 using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Threading.Tasks;
 
-namespace CHC.EF.Reverse.ConsoleApp
+namespace CHC.EF.Reverse.ConsoleApp.Core.Services
 {
     public class CodeGenerationService
     {

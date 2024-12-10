@@ -1,8 +1,10 @@
-﻿using CHC.EF.Reverse.ConsoleApp;
-using System.Collections.Generic;
+﻿using System.Collections.Generic;
 
 using System;
 using System.Linq;
+using CHC.EF.Reverse.ConsoleApp.Exceptions;
+using CHC.EF.Reverse.ConsoleApp.Core.Interfaces;
+using CHC.EF.Reverse.ConsoleApp.Core.Models;
 
 /// <summary>
 /// 提供資料庫表格間關聯關係的分析功能。
@@ -342,15 +344,4 @@ public class JunctionTableInfo
     /// 取得或設定額外欄位定義清單。
     /// </summary>
     public List<ColumnDefinition> AdditionalColumns { get; set; }
-}
-
-/// <summary>
-/// 關聯分析過程中可能發生的異常。
-/// </summary>
-public class RelationshipAnalysisException : Exception
-{
-    public RelationshipAnalysisException(string message, Exception innerException)
-        : base(message, innerException)
-    {
-    }
 }

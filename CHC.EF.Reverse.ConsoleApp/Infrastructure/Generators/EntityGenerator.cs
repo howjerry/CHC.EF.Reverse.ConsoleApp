@@ -1,4 +1,7 @@
-﻿using System;
+﻿using CHC.EF.Reverse.ConsoleApp.Core.Interfaces;
+using CHC.EF.Reverse.ConsoleApp.Core.Models;
+using CHC.EF.Reverse.ConsoleApp.Exceptions;
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -8,7 +11,7 @@ using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 
 
-namespace CHC.EF.Reverse.ConsoleApp
+namespace CHC.EF.Reverse.ConsoleApp.Infrastructure.Generators
 {
     /// <summary>
     /// 負責產生實體類別與相關設定的程式碼生成器。
@@ -520,7 +523,7 @@ namespace CHC.EF.Reverse.ConsoleApp
                 var maxLength = column.MaxLength ?? -1;
                 sb.AppendLine($"                .HasColumnType(\"{dataType}({(maxLength == -1 ? "max" : maxLength.ToString())})\")");
             }
-            else if(dataType == "nvarchar")
+            else if (dataType == "nvarchar")
             {
                 var maxLength = column.MaxLength ?? -1;
                 maxLength = maxLength / 2;
@@ -1463,16 +1466,16 @@ namespace CHC.EF.Reverse.ConsoleApp
 
                 // 初始化集合導航屬性
                 var collectionProperties = relationships
-                    .Where(r => (r.SourceTable == className &&
-                               (r.Type == RelationType.OneToMany || r.Type == RelationType.ManyToMany)) ||
-                               (r.TargetTable == className && r.Type == RelationType.ManyToMany))
+                    .Where(r => r.SourceTable == className &&
+                               (r.Type == RelationType.OneToMany || r.Type == RelationType.ManyToMany) ||
+                               r.TargetTable == className && r.Type == RelationType.ManyToMany)
                     .ToList();
 
                 foreach (var rel in collectionProperties)
                 {
                     var propertyType = rel.Type == RelationType.ManyToMany ?
                         rel.TargetTable :
-                        (rel.SourceTable == className ? rel.TargetTable : rel.SourceTable);
+                        rel.SourceTable == className ? rel.TargetTable : rel.SourceTable;
 
                     var propertyName = Pluralize(ToPascalCase(propertyType));
                     sb.AppendLine($"            {propertyName} = new HashSet<{ToPascalCase(propertyType)}>();");

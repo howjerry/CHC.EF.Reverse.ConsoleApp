@@ -1,4 +1,10 @@
-﻿using CommandLine;
+﻿using CHC.EF.Reverse.ConsoleApp.Core.Configuration;
+using CHC.EF.Reverse.ConsoleApp.Core.Interfaces;
+using CHC.EF.Reverse.ConsoleApp.Core.Models;
+using CHC.EF.Reverse.ConsoleApp.Core.Services;
+using CHC.EF.Reverse.ConsoleApp.Infrastructure.Database;
+using CHC.EF.Reverse.ConsoleApp.Infrastructure.Logging;
+using CommandLine;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using System;

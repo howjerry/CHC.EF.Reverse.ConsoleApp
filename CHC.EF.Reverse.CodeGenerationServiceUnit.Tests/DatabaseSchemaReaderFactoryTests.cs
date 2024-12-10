@@ -2,6 +2,8 @@ using Xunit;
 using Microsoft.Extensions.Options;
 using System;
 using Moq;
+using CHC.EF.Reverse.ConsoleApp.Core.Models;
+using CHC.EF.Reverse.ConsoleApp.Infrastructure.Database;
 
 namespace CHC.EF.Reverse.ConsoleApp.Tests
 {

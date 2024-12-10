@@ -1,8 +1,9 @@
-﻿using System;
+﻿using CHC.EF.Reverse.ConsoleApp.Core.Interfaces;
+using System;
 using System.IO;
 using System.Threading;
 
-namespace CHC.EF.Reverse.ConsoleApp
+namespace CHC.EF.Reverse.ConsoleApp.Infrastructure.Logging
 {
     /// <summary>
     /// 負責記錄程式碼生成過程中的日誌。
