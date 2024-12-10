@@ -22,7 +22,7 @@ namespace CHC.EF.Reverse.ConsoleApp
 
         [Option('o', "output", Required = false,
             HelpText = "Output directory")]
-        public string OutputDirectory { get; set; }
+        public string OutputDirectory { get; set; } 
 
         [Option("pluralize", Required = false,
             HelpText = "Pluralize collection names")]
@@ -32,16 +32,8 @@ namespace CHC.EF.Reverse.ConsoleApp
             HelpText = "Use data annotations")]
         public bool? UseDataAnnotations { get; set; }
 
-        [Option("config", Required = false,
-            HelpText = "Path to custom configuration file (efrev.json)")]
+        [Option("config", Required = false, Default = "appsettings.json",
+            HelpText = "Path to custom configuration file.")]
         public string ConfigFile { get; set; }
-
-        [Option("settings", Required = false, Default = "appsettings.json",
-            HelpText = "Path to appsettings.json file")]
-        public string SettingsFile { get; set; }
-
-        [Option("init", Required = false,
-            HelpText = "Initialize configuration files")]
-        public bool Init { get; set; }
     }
 }

@@ -16,12 +16,6 @@ namespace CHC.EF.Reverse.ConsoleApp
                 {
                     try
                     {
-                        if (options.Init)
-                        {
-                            await InitializeConfigFiles(options.OutputDirectory);
-                            return;
-                        }
-
                         var settings = await GetSettingsAsync(options);
                         var services = ConfigureServices(settings);
 
@@ -44,12 +38,12 @@ namespace CHC.EF.Reverse.ConsoleApp
         {
             Settings settings = new Settings();
 
-            // 1. 嘗試從 appsettings.json 讀取基本設定
-            if (File.Exists(options.SettingsFile))
+            // 1. 嘗試從 appsettings.json 讀取基本設定(開發測試用)
+            if (File.Exists(options.ConfigFile))
             {
                 var configuration = new ConfigurationBuilder()
                     .SetBasePath(Directory.GetCurrentDirectory())
-                    .AddJsonFile(options.SettingsFile)
+                    .AddJsonFile(options.ConfigFile)
                     .Build();
 
                 var section = configuration.GetSection("CodeGenerator");
@@ -64,7 +58,7 @@ namespace CHC.EF.Reverse.ConsoleApp
             }
             else
             {
-                Console.WriteLine($"Warning: {options.SettingsFile} not found");
+                Console.WriteLine($"Warning: {options.ConfigFile} not found");
             }
 
             // 2. 如果指定了自定義配置文件，覆蓋設定
@@ -122,50 +116,6 @@ namespace CHC.EF.Reverse.ConsoleApp
 
             if (string.IsNullOrEmpty(settings.OutputDirectory))
                 settings.OutputDirectory = "./Generated";
-        }
-
-        private static async Task InitializeConfigFiles(string outputPath)
-        {
-            // 生成預設配置
-            var defaultConfig = new Settings
-            {
-                ConnectionString = "",
-                ProviderName = "Microsoft.Data.SqlClient",
-                Namespace = "GeneratedApp.Data",
-                DbContextName = "AppDbContext",
-                UseDataAnnotations = true,
-                IncludeComments = true,
-                IsPluralize = true,
-                OutputDirectory = "./Generated"
-            };
-
-            // 生成 efrev.json
-            var jsonConfig = System.Text.Json.JsonSerializer.Serialize(defaultConfig, new System.Text.Json.JsonSerializerOptions
-            {
-                WriteIndented = true
-            });
-
-            var configPath = Path.Combine(outputPath, "efrev.json");
-            await File.WriteAllTextAsync(configPath, jsonConfig);
-            Console.WriteLine($"Custom configuration file created at: {configPath}");
-
-            // 生成 appsettings.json
-            var appsettingsContent = @"{
-  ""CodeGenerator"": {
-    ""ConnectionString"": """",
-    ""ProviderName"": ""Microsoft.Data.SqlClient"",
-    ""Namespace"": ""GeneratedApp.Data"",
-    ""DbContextName"": ""AppDbContext"",
-    ""UseDataAnnotations"": true,
-    ""IncludeComments"": true,
-    ""IsPluralize"": true,
-    ""OutputDirectory"": ""./Generated""
-  }
-}";
-
-            var appsettingsPath = Path.Combine(outputPath, "appsettings.json");
-            await File.WriteAllTextAsync(appsettingsPath, appsettingsContent);
-            Console.WriteLine($"appsettings.json file created at: {appsettingsPath}");
         }
 
         private static ServiceProvider ConfigureServices(Settings settings)

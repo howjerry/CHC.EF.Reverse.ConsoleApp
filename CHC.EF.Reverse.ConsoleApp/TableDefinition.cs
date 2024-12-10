@@ -135,7 +135,7 @@ namespace CHC.EF.Reverse.ConsoleApp
         public bool IsIdentity { get; set; }
         public bool IsComputed { get; set; }
         public string DefaultValue { get; set; }
-        public int? MaxLength { get; set; }
+        public long? MaxLength { get; set; }
         public int? Precision { get; set; }
         public int? Scale { get; set; }
         public string Comment { get; set; }

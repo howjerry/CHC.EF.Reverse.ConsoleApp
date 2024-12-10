@@ -1,81 +1,85 @@
-# EF Core Reverse Engineering Tool
+# CHC.EF.Reverse - Database Reverse Engineering Code Generation Tool
 
-.NET 8.0 code generator for Entity Framework 6.0, creating POCO classes, configurations, and DbContext from existing databases.
+This tool is a code generator based on .NET 8.0 and supports EF6.0. It automatically generates entity classes (POCOs), Fluent API configuration classes, and `DbContext` classes from an existing database schema. By analyzing the database structure, relationships, indexes, and other attributes, this tool generates code that can be used in Entity Framework 6, accelerating initial project development and reducing the burden of manually writing large amounts of boilerplate code.
 
 ## Features
 
-### Database Schema Support
-- Comprehensive schema reading for SQL Server and MySQL
-- Advanced relationship mapping:
-  - One-to-One with unique constraint detection
-  - One-to-Many with collection navigation
-  - Many-to-Many with junction table support
-- Column property handling:
-  - Custom data types and constraints
-  - Computed columns and generated values
-  - Collation and encoding settings
-- Index and key management:
-  - Composite primary/foreign keys
-  - Unique and clustered indexes
-  - Filtered indexes (SQL Server)
+- **Multiple Database Support**: Supports SQL Server and MySQL database reading. Switch between different providers through configuration options.
+- **Automatic Relationship Identification**:
+  - One-to-One: Identified and configured based on unique indexes and foreign keys.
+  - One-to-Many: Automatically generates collection-type navigation properties and foreign key configurations.
+  - Many-to-Many: Supports the identification of intermediate join tables and automatically generates bi-directional collection properties and corresponding configurations.
+- **Field and Type Handling**:
+  - Automatically generates corresponding .NET types based on database types.
+  - Supports computed columns, identity columns, and default value mapping.
+  - Supports maximum length, precision, and scale attribute settings.
+- **Index and Key Management**:
+  - Automatically detects primary keys and composite primary keys.
+  - Supports unique indexes, clustered indexes, non-clustered indexes, and their attribute settings.
+- **Code Generation and Configuration File Management**:
+  - Generates POCO entity classes and their corresponding `Configuration` classes.
+  - Automatically generates corresponding `DbContext` classes and `OnModelCreating` configurations.
+  - Optionally use Data Annotations or only Fluent API.
+  - Supports customization of namespaces, output directories, and class names.
+- **Documentation and Comments**:
+  - Automatically generates XML comments from the comment fields in the database.
+  - Clear log records of the generation process for debugging and review.
 
-### Code Generation
-- Clean POCO entities with relationship navigation
-- Fluent API configurations
-- Documented DbContext
-- XML documentation from schema comments
+## Installation and Prerequisites
 
-### Configuration Options
-- Multiple config sources (CLI, JSON files)
-- Provider selection (SQL Server/MySQL)
-- Output customization
-- Pluralization options
-
-## Installation
+This tool can be installed as a .NET Global Tool. Make sure you have .NET 6 (or later, .NET 8 recommended) SDK installed:
 
 ```bash
 dotnet tool install --global CHC.EF.Reverse.Poco
 ```
 
-Required packages:
-```bash
-dotnet add package Microsoft.EntityFrameworkCore
-dotnet add package Microsoft.EntityFrameworkCore.SqlServer # For SQL Server
-dotnet add package MySql.EntityFrameworkCore # For MySQL
+After generating the code, you need to add the Entity Framework 6 package (not EF Core) to your project:
+
+```
+Install-Package EntityFramework
+```
+
+Or via .NET CLI:
+
+```
+dotnet add package EntityFramework
 ```
 
 ## Usage
 
-Initialize config:
+**Basic Command Example**
+
 ```bash
-efrev --init
+efrev -c "Server=localhost;Database=YourDb;User Id=xxx;Password=xxx;" -p "Microsoft.Data.SqlClient" -n "YourApp.Data" -o "./Generated"
 ```
 
-Basic usage:
-```bash
-efrev -c "connection-string" -p "provider-name"
-```
+The above command explanation:
 
-### Options
-```bash
--c, --connection        Connection string
--p, --provider         Provider (SqlServer/MySql)
--n, --namespace        Target namespace
--o, --output           Output directory
---pluralize            Pluralize collection names
---data-annotations     Use data annotations
---config              Custom config path
---settings            Settings file path
---init                Create config files
-```
+- `-c` or `--connection`: Database connection string
+- `-p` or `--provider`: Database provider, such as `Microsoft.Data.SqlClient` (SQL Server) or `MySql.Data.MySqlClient` (MySQL)
+- `-n` or `--namespace`: Namespace for the generated code
+- `-o` or `--output`: Output directory path
 
-### Configuration
+**Commonly Used Parameters**
 
-appsettings.json:
+- `-c, --connection`: Set the database connection string
+- `-p, --provider`: Set the database provider (SqlServer/MySql)
+- `-n, --namespace`: Set the namespace for generated code
+- `-o, --output`: Set the output directory
+- `--pluralize`: Enable pluralization of collection names
+- `--data-annotations`: Enable Data Annotations attributes
+- `--config`: Specify a custom configuration file path (default is appsettings.json)
+
+You can combine these parameters to suit your project needs.
+
+## Configuration File
+
+By default, the tool attempts to read configuration values from the `CodeGenerator` section in `appsettings.json`. Here is an example:
+
 ```json
 {
   "CodeGenerator": {
-    "ConnectionString": "Server=localhost;Database=YourDb;",
+    "ConnectionString": "Server=localhost;Database=YourDb;User Id=xxx;Password=xxx;",
     "ProviderName": "Microsoft.Data.SqlClient",
     "Namespace": "YourApp.Data",
     "DbContextName": "AppDbContext",
@@ -87,38 +91,92 @@ appsettings.json:
 }
 ```
 
-## Output Examples
+You can adjust various settings in this file to customize the code generation behavior.
 
-Entity:
+## Output Example
+
+Example of generated entity class (POCO):
+
 ```csharp
 public class Order
 {
+    /// <summary>
+    /// Primary key of the order
+    /// </summary>
     public int Id { get; set; }
-    public int CustomerId { get; set; }
     
+    /// <summary>
+    /// Customer Id (foreign key)
+    /// </summary>
+    public int CustomerId { get; set; }
+
+    /// <summary>
+    /// Corresponding customer entity
+    /// </summary>
     public virtual Customer Customer { get; set; }
-    public virtual ICollection<OrderDetail> Details { get; set; }
+
+    /// <summary>
+    /// Order details collection
+    /// </summary>
+    public virtual ICollection<OrderDetail> OrderDetails { get; set; }
+
+    public Order()
+    {
+        OrderDetails = new HashSet<OrderDetail>();
+    }
 }
 ```
 
-Configuration:
+Example of generated Configuration class:
+
 ```csharp
-modelBuilder.Entity<Order>(entity =>
+public class OrderConfiguration : EntityTypeConfiguration<Order>
 {
-    entity.ToTable("Orders");
-    entity.HasKey(e => e.Id);
-    
-    entity.HasOne(e => e.Customer)
-          .WithMany(e => e.Orders)
-          .HasForeignKey(e => e.CustomerId);
-});
+    public OrderConfiguration()
+    {
+        ToTable("Order", "dbo");
+        HasKey(t => t.Id);
+
+        // Foreign key configuration
+        HasRequired(t => t.Customer)
+            .WithMany(t => t.Orders)
+            .HasForeignKey(t => t.CustomerId);
+
+        // Property configuration
+        Property(t => t.Id)
+            .HasColumnName("Id")
+            .IsRequired()
+            .HasDatabaseGeneratedOption(DatabaseGeneratedOption.Identity);
+
+        Property(t => t.CustomerId)
+            .HasColumnName("CustomerId")
+            .IsRequired();
+    }
+}
 ```
 
-## License
-This project is licensed under the [MIT License](LICENSE).
+## Project Management Considerations
 
-## Release Notes
-- v1.0.0: Initial CLI release
-  - Added command line interface
-  - Support for multiple configuration sources
-  - Improved error handling and feedback
+**Integration with CI/CD**:
+
+This tool can be automatically executed in CI to automatically update the code whenever the database schema changes, ensuring that the code is synchronized with the database structure.
+
+**Version Control**:
+
+Use Git to track the generated code. Once the database schema changes, you can view the corresponding code updates through diffs.
+
+**Adaptation and Customization**:
+
+You can customize by modifying the configuration or source code, such as customizing name conversion rules, adding specific Data Annotations, or advanced Fluent API configurations.
+
+## License
+
+This project is licensed under the MIT License. Feel free to use and modify it.
+
+## Release History
+
+**v1.0.0**: Initial release, supporting SQL Server/MySQL database reverse engineering.
+Added CLI parameters and configuration file reading mechanism.
+Supports entity class, configuration class, and DbContext generation.
+
+For updated information, please refer to the corresponding release page and records.

@@ -5,6 +5,7 @@ using MySql.Data.MySqlClient;
 using System.Collections.Generic;
 using System;
 using System.Linq;
+using System.Reflection.PortableExecutable;
 namespace CHC.EF.Reverse.ConsoleApp
 {
     public class MySqlSchemaReader : IDatabaseSchemaReader
@@ -45,6 +46,8 @@ namespace CHC.EF.Reverse.ConsoleApp
                                 Comment = reader["TABLE_COMMENT"].ToString()
                             });
                         }
+
+                        reader.Close();
                     }
                 }
 
@@ -105,7 +108,7 @@ namespace CHC.EF.Reverse.ConsoleApp
                         // 處理最大長度
                         if (reader["CHARACTER_MAXIMUM_LENGTH"] != DBNull.Value)
                         {
-                            column.MaxLength = Convert.ToInt32(reader["CHARACTER_MAXIMUM_LENGTH"]);
+                            column.MaxLength = Convert.ToInt64(reader["CHARACTER_MAXIMUM_LENGTH"]);
                         }
 
                         // 處理數值精確度
@@ -120,6 +123,8 @@ namespace CHC.EF.Reverse.ConsoleApp
 
                         table.Columns.Add(column);
                     }
+
+                    reader.Close();
                 }
             }
 
@@ -141,6 +146,8 @@ namespace CHC.EF.Reverse.ConsoleApp
                         var column = table.Columns.First(c => c.ColumnName == columnName);
                         column.IsPrimaryKey = true;
                     }
+
+                    reader.Close();
                 }
             }
         }
@@ -193,6 +200,8 @@ namespace CHC.EF.Reverse.ConsoleApp
                             IsIncluded = false // MySQL 不支援包含的欄位
                         });
                     }
+
+                    reader.Close();
                 }
             }
         }
@@ -233,7 +242,7 @@ namespace CHC.EF.Reverse.ConsoleApp
                             };
 
                             // 讀取刪除和更新規則
-                            ReadForeignKeyRules(conn, table.TableName, constraintName, currentFk);
+                            ReadForeignKeyRules(table.TableName, constraintName, currentFk);
 
                             table.ForeignKeys.Add(currentFk);
                             currentFkName = constraintName;
@@ -253,13 +262,18 @@ namespace CHC.EF.Reverse.ConsoleApp
 
                         currentFk.IsCompositeKey = currentFk.ColumnPairs.Count > 1;
                     }
+
+                    reader.Close();
                 }
             }
         }
 
-        private void ReadForeignKeyRules(MySqlConnection conn, string tableName, string constraintName, ForeignKeyDefinition fk)
+        private void ReadForeignKeyRules(string tableName, string constraintName, ForeignKeyDefinition fk)
         {
-            using (var cmd = new MySqlCommand(@"
+            using (var conn = new MySqlConnection(_connectionString))
+            {
+                conn.Open();
+                using (var cmd = new MySqlCommand(@"
             SELECT 
                 DELETE_RULE,
                 UPDATE_RULE
@@ -267,16 +281,19 @@ namespace CHC.EF.Reverse.ConsoleApp
             WHERE CONSTRAINT_SCHEMA = DATABASE()
             AND TABLE_NAME = @tableName
             AND CONSTRAINT_NAME = @constraintName", conn))
-            {
-                cmd.Parameters.AddWithValue("@tableName", tableName);
-                cmd.Parameters.AddWithValue("@constraintName", constraintName);
-
-                using (var reader = cmd.ExecuteReader())
                 {
-                    if (reader.Read())
+                    cmd.Parameters.AddWithValue("@tableName", tableName);
+                    cmd.Parameters.AddWithValue("@constraintName", constraintName);
+
+                    using (var reader = cmd.ExecuteReader())
                     {
-                        fk.DeleteRule = reader["DELETE_RULE"].ToString();
-                        fk.UpdateRule = reader["UPDATE_RULE"].ToString();
+                        if (reader.Read())
+                        {
+                            fk.DeleteRule = reader["DELETE_RULE"].ToString();
+                            fk.UpdateRule = reader["UPDATE_RULE"].ToString();
+                        }
+
+                        reader.Close();
                     }
                 }
             }
