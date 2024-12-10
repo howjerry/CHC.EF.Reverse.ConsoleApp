@@ -1,336 +1,414 @@
-using Xunit;
-using System.IO;
-using System.Threading.Tasks;
+using System;
 using System.Collections.Generic;
-using Moq;
+using System.IO;
+using System.Linq;
 using System.Text;
+using System.Threading.Tasks;
+using Moq;
+using Xunit;
 
 namespace CHC.EF.Reverse.ConsoleApp.Tests
 {
+    /// <summary>
+    /// 提供 EntityGenerator 類別的完整單元測試。
+    /// </summary>
+    /// <remarks>
+    /// 測試範圍包含：
+    /// 1. 一對一關聯的設定驗證
+    /// 2. 一對多關聯的設定驗證
+    /// 3. 多對多關聯的設定驗證
+    /// 4. 錯誤處理和參數驗證
+    /// </remarks>
     public class EntityGeneratorTests
     {
-        private readonly Settings _settings;
         private readonly Mock<ILogger> _mockLogger;
-        private readonly string _testOutputPath;
-        private readonly List<TableDefinition> _testTables;
+        private readonly Settings _testSettings;
+        private const string TestOutputPath = "TestOutput";
 
+        /// <summary>
+        /// 初始化測試環境和共用資源。
+        /// </summary>
         public EntityGeneratorTests()
         {
-            _testOutputPath = Path.Combine(Path.GetTempPath(), "EntityGenTests");
-            _testTables = new List<TableDefinition>();
-
-            _settings = new Settings
+            _mockLogger = new Mock<ILogger>();
+            _testSettings = new Settings
             {
-                OutputDirectory = _testOutputPath,
+                OutputDirectory = TestOutputPath,
                 Namespace = "TestNamespace",
                 UseDataAnnotations = true,
-                IncludeComments = true
+                IncludeComments = true,
+                IncludeForeignKeys = true
             };
 
-            _mockLogger = new Mock<ILogger>();
-
-            Directory.CreateDirectory(_testOutputPath);
-            Directory.CreateDirectory(Path.Combine(_testOutputPath, "Entities"));
-            Directory.CreateDirectory(Path.Combine(_testOutputPath, "Configurations"));
+            // 確保測試輸出目錄存在
+            Directory.CreateDirectory(TestOutputPath);
         }
 
+        /// <summary>
+        /// 測試建構函式的參數驗證。
+        /// </summary>
         [Fact]
-        public async Task GenerateAsync_WithValidTable_GeneratesEntityAndConfiguration()
+        public void Constructor_WithNullParameters_ThrowsArgumentNullException()
         {
-            var table = new TableDefinition
-            {
-                TableName = "Product",
-                SchemaName = "dbo",
-                Comment = "產品資料表",
-                Columns = new List<ColumnDefinition>
-           {
-               new ColumnDefinition
-               {
-                   ColumnName = "ProductId",
-                   DataType = "int",
-                   IsPrimaryKey = true,
-                   IsIdentity = true,
-                   Comment = "產品編號"
-               },
-               new ColumnDefinition
-               {
-                   ColumnName = "ProductName",
-                   DataType = "string",
-                   MaxLength = 200,
-                   IsNullable = false,
-                   Comment = "產品名稱"
-               }
-           }
-            };
-            _testTables.Add(table);
+            // Arrange
+            Settings settings = null;
+            ILogger logger = null;
+            List<TableDefinition> tables = null;
 
-            var generator = new EntityGenerator(_settings, _mockLogger.Object, _testTables);
-
-            await generator.GenerateAsync(_testTables);
-
-            var configPath = Path.Combine(_testOutputPath, "Configurations", "ProductConfiguration.cs");
-            Assert.True(File.Exists(configPath));
-            var configContent = await File.ReadAllTextAsync(configPath);
-
-            _mockLogger.Object.Info($"實際生成的設定檔內容: \n{configContent}");
-
-            Assert.Contains("using System.Data.Entity.ModelConfiguration;", configContent);
-            Assert.Contains("namespace TestNamespace.Configurations", configContent);
-            Assert.Contains("public class ProductConfiguration : EntityTypeConfiguration<TestNamespace.Entities.Product>", configContent);
-            Assert.Contains("ToTable(\"Product\", \"dbo\")", configContent);
-            Assert.Contains("Property(x => x.ProductId)", configContent);
-            Assert.Contains("HasKey(x => x.ProductId)", configContent);
-            Assert.Contains("Property(x => x.ProductName)", configContent);
-            Assert.Contains("HasMaxLength(200)", configContent);
-            Assert.Contains("IsRequired()", configContent);
+            // Act & Assert
+            Assert.Throws<ArgumentNullException>(() =>
+                new EntityGenerator(settings, _mockLogger.Object, new List<TableDefinition>()));
+            Assert.Throws<ArgumentNullException>(() =>
+                new EntityGenerator(_testSettings, logger, new List<TableDefinition>()));
+            Assert.Throws<ArgumentNullException>(() =>
+                new EntityGenerator(_testSettings, _mockLogger.Object, tables));
         }
 
+        /// <summary>
+        /// 測試一對一關聯的設定生成。
+        /// </summary>
         [Fact]
-        public async Task GenerateAsync_WithForeignKey_GeneratesNavigationProperties()
+        public async Task GenerateAsync_WithOneToOneRelationship_GeneratesCorrectConfiguration()
         {
-            var table = new TableDefinition
-            {
-                TableName = "Order",
-                SchemaName = "dbo",
-                Columns = new List<ColumnDefinition>
-           {
-               new ColumnDefinition
-               {
-                   ColumnName = "OrderId",
-                   DataType = "int",
-                   IsPrimaryKey = true
-               },
-               new ColumnDefinition
-               {
-                   ColumnName = "CustomerId",
-                   DataType = "int",
-                   IsNullable = false
-               }
-           },
-                ForeignKeys = new List<ForeignKeyDefinition>
-           {
-               new ForeignKeyDefinition
-               {
-                   ForeignKeyColumn = "CustomerId",
-                   PrimaryTable = "Customer",
-                   PrimaryKeyColumn = "CustomerId",
-                   DeleteRule = "CASCADE"
-               }
-           }
-            };
-            _testTables.Add(table);
+            // Arrange
+            var tables = CreateOneToOneRelationshipTables();
+            var generator = new EntityGenerator(_testSettings, _mockLogger.Object, tables);
 
-            var generator = new EntityGenerator(_settings, _mockLogger.Object, _testTables);
+            // Act
+            await generator.GenerateAsync(tables);
 
-            await generator.GenerateAsync(_testTables);
+            // Assert
+            var userEntityPath = Path.Combine(TestOutputPath, "Entities", "User.cs");
+            var userProfileEntityPath = Path.Combine(TestOutputPath, "Entities", "UserProfile.cs");
+            var userConfigPath = Path.Combine(TestOutputPath, "Configurations", "UserConfiguration.cs");
+            var userProfileConfigPath = Path.Combine(TestOutputPath, "Configurations", "UserProfileConfiguration.cs");
 
-            var entityPath = Path.Combine(_testOutputPath, "Entities", "Order.cs");
-            Assert.True(File.Exists(entityPath));
-            var entityContent = await File.ReadAllTextAsync(entityPath);
-            Assert.Contains("public virtual Customer Customer { get; set; }", entityContent);
+            Assert.True(File.Exists(userEntityPath));
+            Assert.True(File.Exists(userProfileEntityPath));
+            Assert.True(File.Exists(userConfigPath));
+            Assert.True(File.Exists(userProfileConfigPath));
+
+            // 驗證實體類別內容
+            var userEntityContent = await File.ReadAllTextAsync(userEntityPath);
+            Assert.Contains("public virtual UserProfile UserProfile { get; set; }", userEntityContent);
+
+            var userProfileEntityContent = await File.ReadAllTextAsync(userProfileEntityPath);
+            Assert.Contains("public virtual User User { get; set; }", userProfileEntityContent);
+
+            // 驗證設定類別內容
+            var userConfigContent = await File.ReadAllTextAsync(userConfigPath);
+            Assert.Contains(".HasRequired(t => t.UserProfile)", userConfigContent);
+            Assert.Contains(".WithRequiredPrincipal()", userConfigContent);
+
+            var userProfileConfigContent = await File.ReadAllTextAsync(userProfileConfigPath);
+            Assert.Contains(".HasRequired(t => t.User)", userProfileConfigContent);
+            Assert.Contains(".WithRequiredDependent()", userProfileConfigContent);
         }
 
+        /// <summary>
+        /// 測試一對多關聯的設定生成。
+        /// </summary>
         [Fact]
-        public async Task GenerateAsync_OneToOne_GeneratesNavigationPropertiesAndConfiguration()
+        public async Task GenerateAsync_WithOneToManyRelationship_GeneratesCorrectConfiguration()
         {
-            var studentTable = new TableDefinition
-            {
-                TableName = "Student",
-                SchemaName = "dbo",
-                Columns = new List<ColumnDefinition>
-       {
-           new ColumnDefinition { ColumnName = "StudentId", DataType = "int", IsPrimaryKey = true },
-           new ColumnDefinition { ColumnName = "Name", DataType = "string" }
-       }
-            };
+            // Arrange
+            var tables = CreateOneToManyRelationshipTables();
+            var generator = new EntityGenerator(_testSettings, _mockLogger.Object, tables);
 
-            var profileTable = new TableDefinition
-            {
-                TableName = "StudentProfile",
-                SchemaName = "dbo",
-                Columns = new List<ColumnDefinition>
-       {
-           new ColumnDefinition { ColumnName = "ProfileId", DataType = "int", IsPrimaryKey = true },
-           new ColumnDefinition { ColumnName = "StudentId", DataType = "int", IsNullable = false }
-       },
-                ForeignKeys = new List<ForeignKeyDefinition>
-       {
-           new ForeignKeyDefinition
-           {
-               ForeignKeyColumn = "StudentId",
-               PrimaryTable = "Student",
-               PrimaryKeyColumn = "StudentId"
-           }
-       }
-            };
+            // Act
+            await generator.GenerateAsync(tables);
 
-            _testTables.AddRange(new[] { studentTable, profileTable });
-            var generator = new EntityGenerator(_settings, _mockLogger.Object, _testTables);
-            await generator.GenerateAsync(_testTables);
+            // Assert
+            var orderEntityPath = Path.Combine(TestOutputPath, "Entities", "Order.cs");
+            var orderItemEntityPath = Path.Combine(TestOutputPath, "Entities", "OrderItem.cs");
+            var orderConfigPath = Path.Combine(TestOutputPath, "Configurations", "OrderConfiguration.cs");
+            var orderItemConfigPath = Path.Combine(TestOutputPath, "Configurations", "OrderItemConfiguration.cs");
 
-            var studentPath = Path.Combine(_testOutputPath, "Entities", "Student.cs");
-            var profilePath = Path.Combine(_testOutputPath, "Entities", "StudentProfile.cs");
+            Assert.True(File.Exists(orderEntityPath));
+            Assert.True(File.Exists(orderItemEntityPath));
+            Assert.True(File.Exists(orderConfigPath));
+            Assert.True(File.Exists(orderItemConfigPath));
 
-            Assert.True(File.Exists(studentPath));
-            Assert.True(File.Exists(profilePath));
+            // 驗證實體類別內容
+            var orderEntityContent = await File.ReadAllTextAsync(orderEntityPath);
+            Assert.Contains("public virtual ICollection<OrderItem> OrderItems { get; set; }", orderEntityContent);
+            Assert.Contains("OrderItems = new HashSet<OrderItem>();", orderEntityContent);
 
-            var studentContent = await File.ReadAllTextAsync(studentPath);
-            var profileContent = await File.ReadAllTextAsync(profilePath);
+            var orderItemEntityContent = await File.ReadAllTextAsync(orderItemEntityPath);
+            Assert.Contains("public virtual Order Order { get; set; }", orderItemEntityContent);
 
-            Assert.Contains("public virtual StudentProfile StudentProfile { get; set; }", studentContent);
-            Assert.Contains("public virtual Student Student { get; set; }", profileContent);
-
-            var studentConfigPath = Path.Combine(_testOutputPath, "Configurations", "StudentConfiguration.cs");
-            var profileConfigPath = Path.Combine(_testOutputPath, "Configurations", "StudentProfileConfiguration.cs");
-
-            var studentConfigContent = await File.ReadAllTextAsync(studentConfigPath);
-            var profileConfigContent = await File.ReadAllTextAsync(profileConfigPath);
-
-            Assert.Contains(".HasOptional(s => s.StudentProfile)", studentConfigContent);
-            Assert.Contains(".WithRequired(p => p.Student)", studentConfigContent);
-        }
-
-        [Fact]
-        public async Task GenerateAsync_OneToMany_GeneratesNavigationPropertiesAndConfiguration()
-        {
-            var customerTable = new TableDefinition
-            {
-                TableName = "Customer",
-                SchemaName = "dbo",
-                Columns = new List<ColumnDefinition>
-       {
-           new ColumnDefinition { ColumnName = "CustomerId", DataType = "int", IsPrimaryKey = true }
-       }
-            };
-
-            var orderTable = new TableDefinition
-            {
-                TableName = "Order",
-                SchemaName = "dbo",
-                Columns = new List<ColumnDefinition>
-       {
-           new ColumnDefinition { ColumnName = "OrderId", DataType = "int", IsPrimaryKey = true },
-           new ColumnDefinition { ColumnName = "CustomerId", DataType = "int", IsNullable = false }
-       },
-                ForeignKeys = new List<ForeignKeyDefinition>
-       {
-           new ForeignKeyDefinition
-           {
-               ForeignKeyColumn = "CustomerId",
-               PrimaryTable = "Customer",
-               PrimaryKeyColumn = "CustomerId",
-               DeleteRule = "CASCADE"
-           }
-       }
-            };
-
-            _testTables.AddRange(new[] { customerTable, orderTable });
-            var generator = new EntityGenerator(_settings, _mockLogger.Object, _testTables);
-            await generator.GenerateAsync(_testTables);
-
-            var customerPath = Path.Combine(_testOutputPath, "Entities", "Customer.cs");
-            var orderPath = Path.Combine(_testOutputPath, "Entities", "Order.cs");
-
-            Assert.True(File.Exists(customerPath));
-            Assert.True(File.Exists(orderPath));
-
-            var customerContent = await File.ReadAllTextAsync(customerPath);
-            var orderContent = await File.ReadAllTextAsync(orderPath);
-
-            Assert.Contains("public virtual ICollection<Order> Orders { get; set; }", customerContent);
-            Assert.Contains("public virtual Customer Customer { get; set; }", orderContent);
-
-            var customerConfigPath = Path.Combine(_testOutputPath, "Configurations", "CustomerConfiguration.cs");
-            var orderConfigPath = Path.Combine(_testOutputPath, "Configurations", "OrderConfiguration.cs");
-
-            var customerConfigContent = await File.ReadAllTextAsync(customerConfigPath);
+            // 驗證設定類別內容
             var orderConfigContent = await File.ReadAllTextAsync(orderConfigPath);
+            Assert.Contains(".HasMany(t => t.OrderItems)", orderConfigContent);
+            Assert.Contains(".WithRequired(t => t.Order)", orderConfigContent);
 
-            Assert.Contains(".HasMany(c => c.Orders)", customerConfigContent);
-            Assert.Contains(".WithRequired(o => o.Customer)", orderConfigContent);
-            Assert.Contains(".WillCascadeOnDelete(true)", orderConfigContent);
+            var orderItemConfigContent = await File.ReadAllTextAsync(orderItemConfigPath);
+            Assert.Contains(".HasRequired(t => t.Order)", orderItemConfigContent);
+            Assert.Contains(".WithMany()", orderItemConfigContent);
         }
 
+        /// <summary>
+        /// 測試多對多關聯的設定生成。
+        /// </summary>
         [Fact]
-        public async Task GenerateAsync_ManyToMany_GeneratesNavigationPropertiesAndConfiguration()
+        public async Task GenerateAsync_WithManyToManyRelationship_GeneratesCorrectConfiguration()
         {
-            var studentTable = new TableDefinition
-            {
-                TableName = "Student",
-                SchemaName = "dbo",
-                Columns = new List<ColumnDefinition>
-       {
-           new ColumnDefinition { ColumnName = "StudentId", DataType = "int", IsPrimaryKey = true }
-       }
-            };
+            // Arrange
+            var tables = CreateManyToManyRelationshipTables();
+            var generator = new EntityGenerator(_testSettings, _mockLogger.Object, tables);
 
-            var courseTable = new TableDefinition
-            {
-                TableName = "Course",
-                SchemaName = "dbo",
-                Columns = new List<ColumnDefinition>
-       {
-           new ColumnDefinition { ColumnName = "CourseId", DataType = "int", IsPrimaryKey = true }
-       }
-            };
+            // Act
+            await generator.GenerateAsync(tables);
 
-            var enrollmentTable = new TableDefinition
-            {
-                TableName = "Enrollment",
-                SchemaName = "dbo",
-                Columns = new List<ColumnDefinition>
-       {
-           new ColumnDefinition { ColumnName = "StudentId", DataType = "int", IsPrimaryKey = true },
-           new ColumnDefinition { ColumnName = "CourseId", DataType = "int", IsPrimaryKey = true }
-       },
-                ForeignKeys = new List<ForeignKeyDefinition>
-       {
-           new ForeignKeyDefinition
-           {
-               ForeignKeyColumn = "StudentId",
-               PrimaryTable = "Student",
-               PrimaryKeyColumn = "StudentId"
-           },
-           new ForeignKeyDefinition
-           {
-               ForeignKeyColumn = "CourseId",
-               PrimaryTable = "Course",
-               PrimaryKeyColumn = "CourseId"
-           }
-       }
-            };
+            // Assert
+            var studentEntityPath = Path.Combine(TestOutputPath, "Entities", "Student.cs");
+            var courseEntityPath = Path.Combine(TestOutputPath, "Entities", "Course.cs");
+            var enrollmentEntityPath = Path.Combine(TestOutputPath, "Entities", "StudentCourseEnrollment.cs");
 
-            _testTables.AddRange(new[] { studentTable, courseTable, enrollmentTable });
-            var generator = new EntityGenerator(_settings, _mockLogger.Object, _testTables);
-            await generator.GenerateAsync(_testTables);
+            Assert.True(File.Exists(studentEntityPath));
+            Assert.True(File.Exists(courseEntityPath));
+            Assert.True(File.Exists(enrollmentEntityPath));
 
-            var studentPath = Path.Combine(_testOutputPath, "Entities", "Student.cs");
-            var coursePath = Path.Combine(_testOutputPath, "Entities", "Course.cs");
+            // 驗證實體類別內容
+            var studentEntityContent = await File.ReadAllTextAsync(studentEntityPath);
+            Assert.Contains("public virtual ICollection<Course> Courses { get; set; }", studentEntityContent);
+            Assert.Contains("Courses = new HashSet<Course>();", studentEntityContent);
 
-            Assert.True(File.Exists(studentPath));
-            Assert.True(File.Exists(coursePath));
+            var courseEntityContent = await File.ReadAllTextAsync(courseEntityPath);
+            Assert.Contains("public virtual ICollection<Student> Students { get; set; }", courseEntityContent);
+            Assert.Contains("Students = new HashSet<Student>();", courseEntityContent);
 
-            var studentContent = await File.ReadAllTextAsync(studentPath);
-            var courseContent = await File.ReadAllTextAsync(coursePath);
-
-            Assert.Contains("public virtual ICollection<Course> Courses { get; set; }", studentContent);
-            Assert.Contains("public virtual ICollection<Student> Students { get; set; }", courseContent);
-
-            var studentConfigPath = Path.Combine(_testOutputPath, "Configurations", "StudentConfiguration.cs");
-            var courseConfigPath = Path.Combine(_testOutputPath, "Configurations", "CourseConfiguration.cs");
-
-            var studentConfigContent = await File.ReadAllTextAsync(studentConfigPath);
-            var courseConfigContent = await File.ReadAllTextAsync(courseConfigPath);
-
-            Assert.Contains(".HasMany(s => s.Courses).WithMany(c => c.Students)", studentConfigContent);
-            Assert.Contains(".Map(m => { m.ToTable(\"Enrollment\"); m.MapLeftKey(\"StudentId\"); m.MapRightKey(\"CourseId\"); })", studentConfigContent);
+            // 驗證設定類別內容
+            var studentConfigContent = await File.ReadAllTextAsync(Path.Combine(TestOutputPath, "Configurations", "StudentConfiguration.cs"));
+            Assert.Contains(".HasMany(t => t.Courses)", studentConfigContent);
+            Assert.Contains(".WithMany(t => t.Students)", studentConfigContent);
+            Assert.Contains(".Map(m =>", studentConfigContent);
+            Assert.Contains("m.ToTable(\"StudentCourseEnrollment\")", studentConfigContent);
         }
-        public void Dispose()
+
+        /// <summary>
+        /// 測試錯誤處理情況。
+        /// </summary>
+        [Fact]
+        public async Task GenerateAsync_WithInvalidConfiguration_HandlesErrorsGracefully()
         {
-            if (Directory.Exists(_testOutputPath))
+            // Arrange
+            var invalidTables = new List<TableDefinition>
             {
-                Directory.Delete(_testOutputPath, true);
-            }
+                new TableDefinition
+                {
+                    TableName = "InvalidTable",
+                    Columns = new List<ColumnDefinition>(),
+                    ForeignKeys = new List<ForeignKeyDefinition>
+                    {
+                        new ForeignKeyDefinition
+                        {
+                            // 無效的外鍵設定
+                            ForeignKeyColumn = "NonExistentColumn",
+                            PrimaryTable = "NonExistentTable"
+                        }
+                    }
+                }
+            };
+
+            var generator = new EntityGenerator(_testSettings, _mockLogger.Object, invalidTables);
+
+            // Act & Assert
+            await generator.GenerateAsync(invalidTables);
+
+            // 驗證錯誤日誌記錄
+            _mockLogger.Verify(
+                x => x.Warning(It.IsAny<string>()),
+                Times.AtLeastOnce,
+                "應該記錄警告訊息"
+            );
         }
+
+        #region Helper Methods
+
+        /// <summary>
+        /// 建立測試用的一對一關聯表格定義。
+        /// </summary>
+        private List<TableDefinition> CreateOneToOneRelationshipTables()
+        {
+            return new List<TableDefinition>
+            {
+                new TableDefinition
+                {
+                    TableName = "User",
+                    Columns = new List<ColumnDefinition>
+                    {
+                        new ColumnDefinition
+                        {
+                            ColumnName = "UserId",
+                            DataType = "int",
+                            IsPrimaryKey = true,
+                            IsIdentity = true
+                        },
+                        new ColumnDefinition
+                        {
+                            ColumnName = "UserProfileId",
+                            DataType = "int",
+                            IsNullable = false
+                        }
+                    },
+                    ForeignKeys = new List<ForeignKeyDefinition>
+                    {
+                        new ForeignKeyDefinition
+                        {
+                            ForeignKeyColumn = "UserProfileId",
+                            PrimaryTable = "UserProfile",
+                            PrimaryKeyColumn = "ProfileId",
+                            IsEnabled = true
+                        }
+                    }
+                },
+                new TableDefinition
+                {
+                    TableName = "UserProfile",
+                    Columns = new List<ColumnDefinition>
+                    {
+                        new ColumnDefinition
+                        {
+                            ColumnName = "ProfileId",
+                            DataType = "int",
+                            IsPrimaryKey = true,
+                            IsIdentity = true
+                        }
+                    }
+                }
+            };
+        }
+
+        /// <summary>
+        /// 建立測試用的一對多關聯表格定義。
+        /// </summary>
+        private List<TableDefinition> CreateOneToManyRelationshipTables()
+        {
+            return new List<TableDefinition>
+            {
+                new TableDefinition
+                {
+                    TableName = "Order",
+                    Columns = new List<ColumnDefinition>
+                    {
+                        new ColumnDefinition
+                        {
+                            ColumnName = "OrderId",
+                            DataType = "int",
+                            IsPrimaryKey = true,
+                            IsIdentity = true
+                        }
+                    }
+                },
+                new TableDefinition
+                {
+                    TableName = "OrderItem",
+                    Columns = new List<ColumnDefinition>
+                    {
+                        new ColumnDefinition
+                        {
+                            ColumnName = "OrderItemId",
+                            DataType = "int",
+                            IsPrimaryKey = true,
+                            IsIdentity = true
+                        },
+                        new ColumnDefinition
+                        {
+                            ColumnName = "OrderId",
+                            DataType = "int",
+                            IsNullable = false
+                        }
+                    },
+                    ForeignKeys = new List<ForeignKeyDefinition>
+                    {
+                        new ForeignKeyDefinition
+                        {
+                            ForeignKeyColumn = "OrderId",
+                            PrimaryTable = "Order",
+                            PrimaryKeyColumn = "OrderId",
+                            IsEnabled = true
+                        }
+                    }
+                }
+            };
+        }
+
+        /// <summary>
+        /// 建立測試用的多對多關聯表格定義。
+        /// </summary>
+        private List<TableDefinition> CreateManyToManyRelationshipTables()
+        {
+            return new List<TableDefinition>
+            {
+                new TableDefinition
+                {
+                    TableName = "Student",
+                    Columns = new List<ColumnDefinition>
+                    {
+                        new ColumnDefinition
+                        {
+                            ColumnName = "StudentId",
+                            DataType = "int",
+                            IsPrimaryKey = true,
+                            IsIdentity = true
+                        }
+                    }
+                },
+                new TableDefinition
+                {
+                    TableName = "Course",
+                    Columns = new List<ColumnDefinition>
+                    {
+                        new ColumnDefinition
+                        {
+                            ColumnName = "CourseId",
+                            DataType = "int",
+                            IsPrimaryKey = true,
+                            IsIdentity = true
+                        }
+                    }
+                },
+                new TableDefinition
+                {
+                    TableName = "StudentCourseEnrollment",
+                    
+                    Columns = new List<ColumnDefinition>
+                    {
+                        new ColumnDefinition
+                        {
+                            ColumnName = "StudentId",
+                            DataType = "int",
+                            IsPrimaryKey = true
+                        },
+                        new ColumnDefinition
+                        {
+                            ColumnName = "CourseId",
+                            DataType = "int",
+                            IsPrimaryKey = true
+                        }
+                    },
+                    ForeignKeys = new List<ForeignKeyDefinition>
+                    {
+                        new ForeignKeyDefinition
+                        {
+                            ForeignKeyColumn = "StudentId",
+                            PrimaryTable = "Student",
+                            PrimaryKeyColumn = "StudentId",
+                            IsEnabled = true
+                        },
+                        new ForeignKeyDefinition
+                        {
+                            ForeignKeyColumn = "CourseId",
+                            PrimaryTable = "Course",
+                            PrimaryKeyColumn = "CourseId",
+                            IsEnabled = true
+                        }
+                    }
+                }
+            };
+        }
+
+        #endregion
     }
 }

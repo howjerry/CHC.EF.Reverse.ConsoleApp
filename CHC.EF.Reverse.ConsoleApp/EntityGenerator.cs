@@ -185,15 +185,47 @@ namespace CHC.EF.Reverse.ConsoleApp
             RelationshipType relationship,
             StringBuilder sb)
         {
-            var relatedTable = table.TableName == relationship.SourceTable ?
-                relationship.TargetTable : relationship.SourceTable;
-            var propertyName = Pluralize(ToPascalCase(relatedTable));
+            if (relationship.JunctionTableInfo == null)
+            {
+                _logger.Warning($"多對多關聯缺少中間表資訊: {table.TableName}");
+                return;
+            }
 
-            sb.AppendLine($"        /// <summary>");
-            sb.AppendLine($"        /// 關聯的 {relatedTable} 集合");
-            sb.AppendLine($"        /// </summary>");
-            sb.AppendLine($"        public virtual ICollection<{ToPascalCase(relatedTable)}> {propertyName} {{ get; set; }}");
-            sb.AppendLine();
+            // 處理中間表實體
+            if (table.TableName == relationship.JunctionTableInfo.TableName)
+            {
+                // 中間表應該有兩個單一導航屬性指向兩端實體
+                var sourceClassName = ToPascalCase(relationship.SourceTable);
+                var targetClassName = ToPascalCase(relationship.TargetTable);
+
+                sb.AppendLine($"        /// <summary>");
+                sb.AppendLine($"        /// 關聯的 {sourceClassName} 實體");
+                sb.AppendLine($"        /// </summary>");
+                sb.AppendLine($"        public virtual {sourceClassName} {sourceClassName} {{ get; set; }}");
+                sb.AppendLine();
+
+                sb.AppendLine($"        /// <summary>");
+                sb.AppendLine($"        /// 關聯的 {targetClassName} 實體");
+                sb.AppendLine($"        /// </summary>");
+                sb.AppendLine($"        public virtual {targetClassName} {targetClassName} {{ get; set; }}");
+                sb.AppendLine();
+            }
+            else
+            {
+                // 兩端實體應該有集合導航屬性
+                var otherEndClassName = ToPascalCase(
+                    table.TableName == relationship.SourceTable ?
+                    relationship.TargetTable :
+                    relationship.SourceTable);
+
+                var intermediateClassName = ToPascalCase(relationship.JunctionTableInfo.TableName);
+
+                sb.AppendLine($"        /// <summary>");
+                sb.AppendLine($"        /// 關聯的 {intermediateClassName} 集合");
+                sb.AppendLine($"        /// </summary>");
+                sb.AppendLine($"        public virtual ICollection<{intermediateClassName}> {Pluralize(intermediateClassName)} {{ get; set; }}");
+                sb.AppendLine();
+            }
         }
         /// <summary>
         /// 產生實體設定類別的程式碼。
@@ -483,9 +515,15 @@ namespace CHC.EF.Reverse.ConsoleApp
             {
                 sb.AppendLine($"                .HasColumnType(\"decimal({column.Precision},{column.Scale})\")");
             }
-            else if (dataType == "varchar" || dataType == "nvarchar")
+            else if (dataType == "varchar")
             {
                 var maxLength = column.MaxLength ?? -1;
+                sb.AppendLine($"                .HasColumnType(\"{dataType}({(maxLength == -1 ? "max" : maxLength.ToString())})\")");
+            }
+            else if(dataType == "nvarchar")
+            {
+                var maxLength = column.MaxLength ?? -1;
+                maxLength = maxLength / 2;
                 sb.AppendLine($"                .HasColumnType(\"{dataType}({(maxLength == -1 ? "max" : maxLength.ToString())})\")");
             }
         }
@@ -632,8 +670,6 @@ namespace CHC.EF.Reverse.ConsoleApp
                     ConfigureTargetEndOneToOne(sb, table.TableName, navigationProperty);
                 }
 
-                // 設定關聯的刪除行為
-                ConfigureDeleteBehavior(sb, foreignKey);
                 sb.AppendLine("                ;");
                 sb.AppendLine();
             }
@@ -820,11 +856,6 @@ namespace CHC.EF.Reverse.ConsoleApp
                 sb.AppendLine("                .HasIndex(c => c.IsUnique = true)");
             }
 
-            // 設定參考完整性約束
-            if (!string.IsNullOrEmpty(foreignKey.DeleteRule))
-            {
-                ConfigureDeleteBehavior(sb, foreignKey);
-            }
 
             // 設定更新行為
             if (!string.IsNullOrEmpty(foreignKey.UpdateRule))
@@ -882,8 +913,6 @@ namespace CHC.EF.Reverse.ConsoleApp
                     ConfigureOneToManyDependent(sb, targetClassName, foreignKey);
                 }
 
-                // 設定關聯的刪除行為
-                ConfigureDeleteBehavior(sb, foreignKey);
                 sb.AppendLine("                ;");
                 sb.AppendLine();
             }
@@ -1104,11 +1133,6 @@ namespace CHC.EF.Reverse.ConsoleApp
         /// <param name="foreignKey">外鍵定義</param>
         private void ConfigureForeignKeyConstraints(StringBuilder sb, ForeignKeyDefinition foreignKey)
         {
-            if (!string.IsNullOrEmpty(foreignKey.DeleteRule))
-            {
-                ConfigureDeleteBehavior(sb, foreignKey);
-            }
-
             if (!string.IsNullOrEmpty(foreignKey.UpdateRule))
             {
                 ConfigureUpdateBehavior(sb, foreignKey.UpdateRule);
@@ -1217,137 +1241,6 @@ namespace CHC.EF.Reverse.ConsoleApp
                  fk.PrimaryTable == relationship.SourceTable));
         }
 
-        /// <summary>
-        /// 設定關聯的刪除行為。
-        /// </summary>
-        private void ConfigureDeleteBehavior(StringBuilder sb, ForeignKeyDefinition foreignKey)
-        {
-            if (foreignKey.DeleteRule?.ToUpper() == "CASCADE")
-            {
-                sb.AppendLine("                .WillCascadeOnDelete(true)");
-            }
-            else
-            {
-                sb.AppendLine("                .WillCascadeOnDelete(false)");
-            }
-        }
-
-
-        private void ConfigureColumns(StringBuilder sb, TableDefinition table)
-        {
-            foreach (var column in table.Columns)
-            {
-                sb.AppendLine($"            Property(x => x.{ToPascalCase(column.ColumnName)})");
-                sb.AppendLine($"                .HasColumnName(\"{column.ColumnName}\")");
-
-                if (column.MaxLength.HasValue && column.DataType == "string")
-                {
-                    sb.AppendLine($"                .HasMaxLength({column.MaxLength.Value})");
-                }
-
-                if (!column.IsNullable)
-                {
-                    sb.AppendLine("                .IsRequired()");
-                }
-
-                if (column.IsIdentity)
-                {
-                    sb.AppendLine("                .HasDatabaseGeneratedOption(DatabaseGeneratedOption.Identity)");
-                }
-                else if (column.IsComputed)
-                {
-                    sb.AppendLine("                .HasDatabaseGeneratedOption(DatabaseGeneratedOption.Computed)");
-                }
-
-                sb.AppendLine("                ;");
-                sb.AppendLine();
-            }
-        }
-
-        private void ConfigurePrimaryKeys(StringBuilder sb, TableDefinition table)
-        {
-            var primaryKeys = table.Columns.Where(c => c.IsPrimaryKey).ToList();
-            if (primaryKeys.Any())
-            {
-                if (primaryKeys.Count() == 1)
-                {
-                    sb.AppendLine($"            HasKey(x => x.{ToPascalCase(primaryKeys[0].ColumnName)});");
-                }
-                else
-                {
-                    var pkProps = string.Join(", ", primaryKeys.Select(pk => $"x.{ToPascalCase(pk.ColumnName)}"));
-                    sb.AppendLine($"            HasKey(x => new {{ {pkProps} }});");
-                }
-                sb.AppendLine();
-            }
-        }
-
-        private void ConfigureRelationships(StringBuilder sb, TableDefinition table)
-        {
-            foreach (var fk in table.ForeignKeys)
-            {
-                var navigationProperty = ToPascalCase(fk.PrimaryTable);
-                var foreignKeyProperty = ToPascalCase(fk.ForeignKeyColumn);
-
-                // One-to-One relationship
-                if (table.IsOneToOne(fk.ForeignKeyColumn))
-                {
-                    sb.AppendLine($"            HasRequired(x => x.{navigationProperty})");
-                    sb.AppendLine($"                .WithOptional(x => x.{ToPascalCase(table.TableName)})");
-                }
-                // One-to-Many relationship
-                else
-                {
-                    var isRequired = !table.Columns.First(c => c.ColumnName == fk.ForeignKeyColumn).IsNullable;
-                    var inverseCollection = Pluralize(ToPascalCase(table.TableName));
-
-                    if (isRequired)
-                    {
-                        sb.AppendLine($"            HasRequired(x => x.{navigationProperty})");
-                    }
-                    else
-                    {
-                        sb.AppendLine($"            HasOptional(x => x.{navigationProperty})");
-                    }
-
-                    sb.AppendLine($"                .WithMany(x => x.{inverseCollection})");
-                    sb.AppendLine($"                .HasForeignKey(x => x.{foreignKeyProperty})");
-
-                    if (fk.DeleteRule?.ToUpper() == "CASCADE")
-                    {
-                        sb.AppendLine("                .WillCascadeOnDelete(true)");
-                    }
-                    else
-                    {
-                        sb.AppendLine("                .WillCascadeOnDelete(false)");
-                    }
-                }
-                sb.AppendLine("                ;");
-                sb.AppendLine();
-            }
-
-            // Many-to-Many relationships
-            if (!table.IsManyToMany)
-            {
-                var manyToManyRelationships = GetManyToManyRelationships(table);
-                foreach (var rel in manyToManyRelationships)
-                {
-                    var otherEntity = ToPascalCase(rel.RelatedTable);
-                    var thisCollection = Pluralize(otherEntity);
-                    var otherCollection = Pluralize(ToPascalCase(table.TableName));
-
-                    sb.AppendLine($"            HasMany(x => x.{thisCollection})");
-                    sb.AppendLine($"                .WithMany(x => x.{otherCollection})");
-                    sb.AppendLine($"                .Map(m =>");
-                    sb.AppendLine($"                {{");
-                    sb.AppendLine($"                    m.ToTable(\"{rel.JunctionTable}\");");
-                    sb.AppendLine($"                    m.MapLeftKey(\"{table.TableName}Id\");");
-                    sb.AppendLine($"                    m.MapRightKey(\"{rel.RelatedTable}Id\");");
-                    sb.AppendLine($"                }});");
-                    sb.AppendLine();
-                }
-            }
-        }
         /// <summary>
         /// 產生實體類別的程式碼。
         /// </summary>

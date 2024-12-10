@@ -5,208 +5,221 @@ using System;
 using System.Linq;
 
 /// <summary>
-/// 提供資料庫表格關聯分析的核心功能。
+/// 提供資料庫關聯分析的核心功能。
 /// </summary>
-/// <remarks>
-/// 此類別負責分析資料庫表格之間的關聯類型，包括：
-/// 1. 一對一關聯分析
-/// 2. 一對多關聯分析
-/// 3. 多對多關聯分析
-/// 分析過程會考慮：外鍵約束、唯一性約束、參考完整性等因素。
-/// </remarks>
 public class RelationshipAnalyzer
 {
     private readonly ILogger _logger;
+    private readonly Dictionary<string, HashSet<string>> _analyzedRelationships;
 
     /// <summary>
     /// 初始化關聯分析器的新實例。
     /// </summary>
-    /// <param name="logger">日誌記錄器</param>
+    /// <param name="logger">日誌記錄服務</param>
     public RelationshipAnalyzer(ILogger logger)
     {
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+        _analyzedRelationships = new Dictionary<string, HashSet<string>>();
     }
 
     /// <summary>
-    /// 分析指定資料表之間的關聯類型。
+    /// 分析指定資料表間的關聯類型。
     /// </summary>
     /// <param name="sourceTable">來源資料表定義</param>
     /// <param name="targetTable">目標資料表定義</param>
-    /// <returns>關聯類型和相關資訊</returns>
+    /// <returns>關聯類型定義</returns>
     public RelationshipType AnalyzeRelationship(TableDefinition sourceTable, TableDefinition targetTable)
     {
+        ValidateInput(sourceTable, targetTable);
+
         try
         {
-            _logger.Info($"開始分析資料表 {sourceTable.TableName} 和 {targetTable.TableName} 之間的關聯");
-
-            // 檢查一對一關聯
-            if (IsOneToOneRelationship(sourceTable, targetTable))
+            // 避免重複分析相同關聯
+            if (HasAnalyzedRelationship(sourceTable.TableName, targetTable.TableName))
             {
-                return new RelationshipType
-                {
-                    Type = RelationType.OneToOne,
-                    SourceTable = sourceTable.TableName,
-                    TargetTable = targetTable.TableName,
-                    ForeignKeyColumns = GetRelatedForeignKeys(sourceTable, targetTable)
-                };
+                return new RelationshipType { Type = RelationType.Unknown };
             }
 
-            // 檢查一對多關聯
-            if (IsOneToManyRelationship(sourceTable, targetTable))
+            _logger.Info($"分析資料表關聯: {sourceTable.TableName} -> {targetTable.TableName}");
+
+            // 尋找外鍵關係
+            var foreignKeys = GetValidForeignKeys(sourceTable, targetTable);
+            if (!foreignKeys.Any())
             {
-                return new RelationshipType
-                {
-                    Type = RelationType.OneToMany,
-                    SourceTable = sourceTable.TableName,
-                    TargetTable = targetTable.TableName,
-                    ForeignKeyColumns = GetRelatedForeignKeys(sourceTable, targetTable)
-                };
+                return new RelationshipType { Type = RelationType.Unknown };
             }
 
-            // 檢查多對多關聯
-            if (IsManyToManyRelationship(sourceTable, targetTable))
-            {
-                return new RelationshipType
-                {
-                    Type = RelationType.ManyToMany,
-                    SourceTable = sourceTable.TableName,
-                    TargetTable = targetTable.TableName,
-                    JunctionTableInfo = GetJunctionTableInfo(sourceTable, targetTable)
-                };
-            }
+            var relationship = DetectRelationshipType(sourceTable, targetTable, foreignKeys);
+            MarkRelationshipAsAnalyzed(sourceTable.TableName, targetTable.TableName);
 
-            return new RelationshipType { Type = RelationType.Unknown };
+            return relationship;
         }
         catch (Exception ex)
         {
-            _logger.Error($"分析表格關聯時發生錯誤: {ex.Message}", ex);
-            throw new RelationshipAnalysisException("分析表格關聯時發生錯誤", ex);
+            _logger.Error($"關聯分析錯誤: {ex.Message}", ex);
+            throw;
         }
     }
 
     /// <summary>
-    /// 檢查兩個資料表之間是否為一對一關聯。
+    /// 檢測關聯類型。
     /// </summary>
-    /// <param name="sourceTable">來源資料表</param>
-    /// <param name="targetTable">目標資料表</param>
-    /// <returns>如果是一對一關聯返回 true，否則返回 false</returns>
-    private bool IsOneToOneRelationship(TableDefinition sourceTable, TableDefinition targetTable)
+    private RelationshipType DetectRelationshipType(
+        TableDefinition sourceTable,
+        TableDefinition targetTable,
+        List<ForeignKeyDefinition> foreignKeys)
     {
-        var foreignKeys = sourceTable.ForeignKeys
-            .Where(fk => fk.PrimaryTable == targetTable.TableName)
+        // 檢查是否為多對多關聯的中間表
+        if (IsJunctionTable(sourceTable))
+        {
+            return CreateManyToManyRelationship(sourceTable);
+        }
+
+        var firstForeignKey = foreignKeys.First();
+
+        // 檢查一對一關聯
+        if (HasUniqueConstraint(sourceTable, firstForeignKey.ForeignKeyColumn))
+        {
+            return new RelationshipType
+            {
+                Type = RelationType.OneToOne,
+                SourceTable = sourceTable.TableName,
+                TargetTable = targetTable.TableName,
+                ForeignKeyColumns = MapForeignKeyInfo(foreignKeys)
+            };
+        }
+
+        // 一對多關聯
+        return new RelationshipType
+        {
+            Type = RelationType.OneToMany,
+            SourceTable = firstForeignKey.PrimaryTable,
+            TargetTable = sourceTable.TableName,
+            ForeignKeyColumns = MapForeignKeyInfo(foreignKeys)
+        };
+    }
+
+    /// <summary>
+    /// 檢查資料表是否為多對多關聯的中間表。
+    /// </summary>
+    private bool IsJunctionTable(TableDefinition table)
+    {
+        if (table.ForeignKeys.Count != 2) return false;
+
+        var primaryKeyColumns = table.Columns
+            .Where(c => c.IsPrimaryKey)
+            .Select(c => c.ColumnName)
             .ToList();
 
-        return foreignKeys.Any(fk =>
-            sourceTable.IsOneToOne(fk.ForeignKeyColumn) &&
-            ValidateReferentialIntegrity(fk, sourceTable, targetTable));
-    }
-
-    /// <summary>
-    /// 檢查兩個資料表之間是否為一對多關聯。
-    /// </summary>
-    /// <param name="sourceTable">來源資料表</param>
-    /// <param name="targetTable">目標資料表</param>
-    /// <returns>如果是一對多關聯返回 true，否則返回 false</returns>
-    private bool IsOneToManyRelationship(TableDefinition sourceTable, TableDefinition targetTable)
-    {
-        var foreignKeys = sourceTable.ForeignKeys
-            .Where(fk => fk.PrimaryTable == targetTable.TableName)
+        var foreignKeyColumns = table.ForeignKeys
+            .Select(fk => fk.ForeignKeyColumn)
             .ToList();
 
-        return foreignKeys.Any(fk =>
-            !sourceTable.IsOneToOne(fk.ForeignKeyColumn) &&
-            !fk.IsCompositeKey &&
-            ValidateReferentialIntegrity(fk, sourceTable, targetTable));
+        return primaryKeyColumns.Count == 2 &&
+               primaryKeyColumns.All(pk => foreignKeyColumns.Contains(pk));
     }
 
     /// <summary>
-    /// 檢查兩個資料表之間是否為多對多關聯。
+    /// 建立多對多關聯定義。
     /// </summary>
-    /// <param name="sourceTable">來源資料表</param>
-    /// <param name="targetTable">目標資料表</param>
-    /// <returns>如果是多對多關聯返回 true，否則返回 false</returns>
-    private bool IsManyToManyRelationship(TableDefinition sourceTable, TableDefinition targetTable)
+    private RelationshipType CreateManyToManyRelationship(TableDefinition junctionTable)
     {
-        // 檢查是否存在連接這兩個表的中間表
-        return sourceTable.ForeignKeys
-            .Where(fk => fk.PrimaryTable == targetTable.TableName)
-            .Any(fk => sourceTable.IsManyToMany);
+        return new RelationshipType
+        {
+            Type = RelationType.ManyToMany,
+            SourceTable = junctionTable.ForeignKeys[0].PrimaryTable,
+            TargetTable = junctionTable.ForeignKeys[1].PrimaryTable,
+            JunctionTableInfo = new JunctionTableInfo
+            {
+                TableName = junctionTable.TableName,
+                SourceKeyColumns = junctionTable.ForeignKeys
+                    .Select(fk => fk.ForeignKeyColumn)
+                    .ToList()
+            },
+            ForeignKeyColumns = MapForeignKeyInfo(junctionTable.ForeignKeys)
+        };
     }
 
     /// <summary>
-    /// 驗證外鍵約束的參考完整性。
+    /// 檢查欄位是否具有唯一性約束。
     /// </summary>
-    /// <param name="foreignKey">外鍵定義</param>
-    /// <param name="sourceTable">來源資料表</param>
-    /// <param name="targetTable">目標資料表</param>
-    /// <returns>如果參考完整性有效返回 true，否則返回 false</returns>
-    private bool ValidateReferentialIntegrity(
-        ForeignKeyDefinition foreignKey,
+    private bool HasUniqueConstraint(TableDefinition table, string columnName)
+    {
+        return table.Indexes.Any(idx =>
+            idx.IsUnique &&
+            idx.Columns.Count == 1 &&
+            idx.Columns[0].ColumnName == columnName);
+    }
+
+    /// <summary>
+    /// 取得有效的外鍵定義。
+    /// </summary>
+    private List<ForeignKeyDefinition> GetValidForeignKeys(
         TableDefinition sourceTable,
         TableDefinition targetTable)
     {
-        try
-        {
-            // 檢查外鍵欄位是否存在於來源表
-            var foreignKeyColumn = sourceTable.Columns
-                .FirstOrDefault(c => c.ColumnName == foreignKey.ForeignKeyColumn);
-            if (foreignKeyColumn == null)
-                return false;
-
-            // 檢查參考的主鍵欄位是否存在於目標表
-            var primaryKeyColumn = targetTable.Columns
-                .FirstOrDefault(c => c.ColumnName == foreignKey.PrimaryKeyColumn);
-            if (primaryKeyColumn == null)
-                return false;
-
-            // 檢查資料類型是否匹配
-            if (foreignKeyColumn.DataType != primaryKeyColumn.DataType)
-                return false;
-
-            // 檢查是否啟用了外鍵約束
-            return foreignKey.IsEnabled;
-        }
-        catch (Exception ex)
-        {
-            _logger.Error($"驗證參考完整性時發生錯誤: {ex.Message}", ex);
-            return false;
-        }
-    }
-
-    /// <summary>
-    /// 獲取相關的外鍵欄位資訊。
-    /// </summary>
-    private List<ForeignKeyInfo> GetRelatedForeignKeys(TableDefinition sourceTable, TableDefinition targetTable)
-    {
-        // 實作取得外鍵資訊的邏輯
         return sourceTable.ForeignKeys
             .Where(fk => fk.PrimaryTable == targetTable.TableName)
-            .Select(fk => new ForeignKeyInfo
-            {
-                ForeignKeyColumn = fk.ForeignKeyColumn,
-                PrimaryKeyColumn = fk.PrimaryKeyColumn,
-                DeleteRule = fk.DeleteRule,
-                UpdateRule = fk.UpdateRule
-            })
             .ToList();
     }
 
     /// <summary>
-    /// 獲取多對多關聯的中間表資訊。
+    /// 映射外鍵資訊。
     /// </summary>
-    private JunctionTableInfo GetJunctionTableInfo(TableDefinition sourceTable, TableDefinition targetTable)
+    private List<ForeignKeyInfo> MapForeignKeyInfo(List<ForeignKeyDefinition> foreignKeys)
     {
-        // 實作取得中間表資訊的邏輯
-        return new JunctionTableInfo
+        return foreignKeys.Select(fk => new ForeignKeyInfo
         {
-            TableName = sourceTable.TableName,
-            SourceKeyColumns = sourceTable.ForeignKeys
-                .Where(fk => fk.PrimaryTable == targetTable.TableName)
-                .Select(fk => fk.ForeignKeyColumn)
-                .ToList()
-        };
+            ForeignKeyColumn = fk.ForeignKeyColumn,
+            PrimaryKeyColumn = fk.PrimaryKeyColumn,
+            DeleteRule = fk.DeleteRule,
+            UpdateRule = fk.UpdateRule
+        }).ToList();
+    }
+
+    /// <summary>
+    /// 檢查是否已分析過指定的關聯。
+    /// </summary>
+    private bool HasAnalyzedRelationship(string sourceTable, string targetTable)
+    {
+        var key = GetRelationshipKey(sourceTable, targetTable);
+        return _analyzedRelationships.ContainsKey(key) &&
+               _analyzedRelationships[key].Contains(targetTable);
+    }
+
+    /// <summary>
+    /// 標記關聯已被分析。
+    /// </summary>
+    private void MarkRelationshipAsAnalyzed(string sourceTable, string targetTable)
+    {
+        var key = GetRelationshipKey(sourceTable, targetTable);
+        if (!_analyzedRelationships.ContainsKey(key))
+        {
+            _analyzedRelationships[key] = new HashSet<string>();
+        }
+        _analyzedRelationships[key].Add(targetTable);
+    }
+
+    /// <summary>
+    /// 取得關聯的唯一識別碼。
+    /// </summary>
+    private string GetRelationshipKey(string sourceTable, string targetTable)
+    {
+        var tables = new[] { sourceTable, targetTable }.OrderBy(t => t);
+        return string.Join("_", tables);
+    }
+
+    /// <summary>
+    /// 驗證輸入參數。
+    /// </summary>
+    private void ValidateInput(TableDefinition sourceTable, TableDefinition targetTable)
+    {
+        if (sourceTable == null) throw new ArgumentNullException(nameof(sourceTable));
+        if (targetTable == null) throw new ArgumentNullException(nameof(targetTable));
     }
 }
+
+
 /// <summary>
 /// 定義資料庫表格之間可能的關聯類型。
 /// </summary>
@@ -260,8 +273,20 @@ public class ForeignKeyInfo
 /// </summary>
 public class JunctionTableInfo
 {
+    /// <summary>
+    /// 取得或設定中間表名稱。
+    /// </summary>
     public string TableName { get; set; }
+
+    /// <summary>
+    /// 取得或設定來源鍵欄位清單。
+    /// </summary>
     public List<string> SourceKeyColumns { get; set; }
+
+    /// <summary>
+    /// 取得或設定額外欄位定義清單。
+    /// </summary>
+    public List<ColumnDefinition> AdditionalColumns { get; set; }
 }
 
 /// <summary>
