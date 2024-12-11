@@ -180,3 +180,5 @@ Added CLI parameters and configuration file reading mechanism.
 Supports entity class, configuration class, and DbContext generation.
 
 For updated information, please refer to the corresponding release page and records.
+
+**v2.0.0**: Fixed a system crash caused by searching for foreign key relationships in large tables.
