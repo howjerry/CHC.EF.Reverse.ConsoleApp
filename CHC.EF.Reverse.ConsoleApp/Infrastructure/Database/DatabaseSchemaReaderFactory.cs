@@ -20,6 +20,7 @@ namespace CHC.EF.Reverse.ConsoleApp.Infrastructure.Database
             {
                 "MySql.Data.MySqlClient" => new MySqlSchemaReader(_settings.ConnectionString),
                 "Microsoft.Data.SqlClient" => new SqlServerSchemaReader(_settings.ConnectionString),
+                "npgsql" => new PostgreSqlSchemaReader(_settings.ConnectionString),
                 _ => throw new NotSupportedException($"不支援的 Provider: {_settings.ProviderName}")
             };
         }
